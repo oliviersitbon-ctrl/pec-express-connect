@@ -25,7 +25,7 @@ contextBridge.exposeInMainWorld('cabflow', {
   setExtractionMode: (mode) => ipcRenderer.invoke('set-extraction-mode', mode),
 
   // Overlay "Lancer la PEC" - clic du bouton flottant
-  lancerPec: () => ipcRenderer.invoke('overlay-lancer-pec'),
+  lancerPec: (intent) => ipcRenderer.invoke('overlay-lancer-pec', intent),
   onOverlayInfo: (cb) => ipcRenderer.on('overlay-info', (e, data) => cb(data)),
 
   // Status

@@ -558,7 +558,7 @@ function forceBrowserForeground() {
 /**
  * Construit l'URL Mon devis dentaire depuis les données CabFlowReader JSON
  */
-function buildCabFlowUrl(data) {
+function buildCabFlowUrl(data, intent) {
   const base = 'https://app.mondevisdentaire.com/prises-en-charge/nouvelle';
   const actes = (data.actes || []).map(a => ({
     code_ccam: a.ccam || '',
@@ -571,7 +571,8 @@ function buildCabFlowUrl(data) {
   const prat = data.praticienInfo || {};
   const mut = data.mutuelle || {};
   const params = new URLSearchParams({
-    source: 'cabflow-desktop',
+    source: 'mdd-desktop',
+    intent: intent || 'pec',
     nom: data.nom || '',
     prenom: data.prenom || '',
     date_naissance: data.dateNaissance || '',
@@ -595,7 +596,7 @@ function buildCabFlowUrl(data) {
  * @param {string} docName - Nom du document depuis WMI (peut contenir l'ID du devis)
  * @returns {Promise<boolean>} true si Chrome a ete ouvert avec succes
  */
-async function readAndOpenCabFlow(docName) {
+async function readAndOpenCabFlow(docName, intent) {
   const T0 = Date.now();
   const cabflowPath = findCabFlowReader();
   if (!cabflowPath) {
@@ -761,7 +762,7 @@ async function readAndOpenCabFlow(docName) {
         // Pousse le nom patient + nb actes dans le loader (visible immediatement)
         updateLoaderPatient(data);
 
-        const url = buildCabFlowUrl(data);
+        const url = buildCabFlowUrl(data, intent);
         log('[CABFLOW] URL: ' + url.substring(0, 120) + '...');
         openUrlInBrowser(url);
         resolve(true);
@@ -2411,7 +2412,16 @@ if (!gotTheLock) {
       // createLoaderWindow();
       // [OPT v1.0.16] WebSocket port 8082 desactive (legacy PecExpress Desktop, gain ~30 MB)
       // startWebSocketServer();
-      startPecExpressPipeListener();
+      // [MDD] Bouton flottant (overlay) - remplace la DLL injectee omnicab.
+      try {
+        const overlay = require('./overlay-pec');
+        overlay.setLogger(log);
+        overlay.startOverlay(async (devisInfo, intent) => {
+          const ok = await readAndOpenCabFlow(null, intent || 'pec');
+          return { success: ok };
+        });
+        log('[STARTUP] Bouton flottant Mon devis dentaire demarre (overlay)');
+      } catch (eOv) { log('[STARTUP] Erreur overlay: ' + eOv.message); }
 
       // Module dashboard (fenetre tray + watcher temps reel DLL/Service)
       try {

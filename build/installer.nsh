@@ -83,27 +83,7 @@
 
   CreateDirectory "C:\ProgramData\PecExpress"
 
-  DetailPrint "Installation du service PecExpressService..."
-  nsExec::ExecToStack 'sc create PecExpressService binPath= "\"$INSTDIR\resources\native\PecExpressService.exe\"" start= auto DisplayName= "Mon devis dentaire Connecté Service"'
-  Pop $0
-  Pop $1
-  !insertmacro LogToFile "sc create -> code=$0 out=$1"
-
-  nsExec::ExecToStack 'sc description PecExpressService "Service event-driven Mon devis dentaire Connecté: injecte la DLL PecExpress dans Logos via WMI ProcessStartTrace"'
-  Pop $0
-  Pop $1
-  !insertmacro LogToFile "sc description -> code=$0 out=$1"
-
-  nsExec::ExecToStack 'sc failure PecExpressService reset= 86400 actions= restart/5000/restart/5000/restart/5000'
-  Pop $0
-  Pop $1
-  !insertmacro LogToFile "sc failure -> code=$0 out=$1"
-
-  nsExec::ExecToStack 'sc start PecExpressService'
-  Pop $0
-  Pop $1
-  !insertmacro LogToFile "sc start -> code=$0 out=$1"
-
+  ; [MDD] Plus de service ni de DLL injectee : le bouton flottant (overlay) remplace tout.
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "PecExpress" '"$INSTDIR\Mon devis dentaire Connecté.exe" --hidden'
   !insertmacro LogToFile "HKLM Run key written"
 

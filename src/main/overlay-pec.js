@@ -31,7 +31,7 @@ let _currentDevisInfo = null;
 let _detectionInflight = false;
 let _attachedParentHwnd = null; // HWND du parent Logos auquel on est attache
 
-const OVERLAY_WIDTH = 140;
+const OVERLAY_WIDTH = 300;
 const OVERLAY_HEIGHT = 32;
 
 /**
@@ -280,7 +280,7 @@ function stopWatcher() {
  * Handler IPC: appele quand l'utilisateur clique sur "Lancer la PEC"
  */
 function setupIpcHandlers() {
-  ipcMain.handle('overlay-lancer-pec', async () => {
+  ipcMain.handle('overlay-lancer-pec', async (event, intent) => {
     log('=== CLIC LANCER LA PEC ===');
     if (!_currentDevisInfo) {
       log('Pas de devis actif detecte');
@@ -290,7 +290,7 @@ function setupIpcHandlers() {
 
     if (_onLancerPec) {
       try {
-        const result = await _onLancerPec(_currentDevisInfo);
+        const result = await _onLancerPec(_currentDevisInfo, intent);
         return { success: true, ...result };
       } catch (e) {
         log('Erreur traitement PEC: ' + e.message);
