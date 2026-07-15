@@ -56,14 +56,15 @@
       "allowElevation": true,
       "runAfterFinish": true,
       "include": "build/installer.nsh",
-      "artifactName": "PEC-Express-Connect-Setup-${version}.${ext}",
+      "artifactName": "PEC-Express-Connect-Setup.${ext}",
       "differentialPackage": false
     },
     "publish": [
       {
         "provider": "github",
         "owner": "oliviersitbon-ctrl",
-        "repo": "pec-express-connect-release"
+        "repo": "pec-express-connect",
+        "releaseType": "release"
       }
     ]
   }
