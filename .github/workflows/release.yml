@@ -1,0 +1,35 @@
+name: Build & Release (Windows installer)
+
+# Build + publication de l'installeur. Se lance quand vous poussez un tag de
+# version (ex. v1.0.31), ou manuellement via l'onglet Actions -> "Run workflow".
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Build & publish installer
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Signature de code (optionnelle) : ajoutez ces 2 secrets pour signer.
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: npx electron-builder --win nsis --x64 --publish always
