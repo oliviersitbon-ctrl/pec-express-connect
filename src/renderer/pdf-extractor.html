@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>PDF Extractor</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.mjs" type="module"></script>
+</head>
+<body>
+  <script type="module">
+    import * as pdfjsLib from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.mjs';
+
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.mjs';
+
+    const Y_TOLERANCE = 5;
+
+    async function extractFromPdf(pdfData) {
+      const pdf = await pdfjsLib.getDocument({ data: pdfData }).promise;
+      const allItems = [];
+
+      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+        const page = await pdf.getPage(pageNum);
+        const viewport = page.getViewport({ scale: 1.0 });
+        const textContent = await page.getTextContent();
+
+        for (const item of textContent.items) {
+          if (item.str && item.str.trim()) {
+            const transform = item.transform;
+            const x = Math.round(transform[4]);
+            const y = Math.round(viewport.height - transform[5]);
+
+            allItems.push({
+              text: item.str,
+              x,
+              y,
+              width: Math.round(item.width || 0),
+              height: Math.round(item.height || 0),
+              pageNum,
+            });
+          }
+        }
+      }
+
+      return allItems;
+    }
+
+    function groupItemsByRow(items) {
+      const sorted = [...items].sort((a, b) => {
+        if (a.pageNum !== b.pageNum) return a.pageNum - b.pageNum;
+        if (Math.abs(a.y - b.y) > Y_TOLERANCE) return a.y - b.y;
+        return a.x - b.x;
+      });
+
+      const rows = [];
+      let currentRow = [];
+      let currentY = -1;
+      let currentPage = -1;
+
+      for (const item of sorted) {
+        const sameRow = currentPage === item.pageNum &&
+          currentY >= 0 &&
+          Math.abs(item.y - currentY) <= Y_TOLERANCE;
+
+        if (sameRow) {
+          currentRow.push(item);
+        } else {
+          if (currentRow.length > 0) {
+            rows.push({
+              y: currentY,
+              pageNum: currentPage,
+              items: currentRow.sort((a, b) => a.x - b.x),
+              rawText: currentRow.sort((a, b) => a.x - b.x).map(i => i.text).join(' '),
+            });
+          }
+          currentRow = [item];
+          currentY = item.y;
+          currentPage = item.pageNum;
+        }
+      }
+
+      if (currentRow.length > 0) {
+        rows.push({
+          y: currentY,
+          pageNum: currentPage,
+          items: currentRow.sort((a, b) => a.x - b.x),
+          rawText: currentRow.sort((a, b) => a.x - b.x).map(i => i.text).join(' '),
+        });
+      }
+
+      return rows;
+    }
+
+    // Écouter les messages du main process
+    window.electronAPI.onExtractPdf(async (pdfPath) => {
+      try {
+        const pdfData = await window.electronAPI.readFile(pdfPath);
+        const items = await extractFromPdf(pdfData);
+        const rows = groupItemsByRow(items);
+
+        window.electronAPI.sendResult({ success: true, items, rows });
+      } catch (error) {
+        window.electronAPI.sendResult({ success: false, error: error.message });
+      }
+    });
+
+    window.electronAPI.ready();
+  </script>
+</body>
+</html>

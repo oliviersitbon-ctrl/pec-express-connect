@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Omnicab PEC</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-user-select: none; user-select: none; }
+    html, body {
+      height: 100vh;
+      width: 100vw;
+      background: transparent;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif;
+      -webkit-app-region: drag;
+    }
+    .btn {
+      -webkit-app-region: no-drag;
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 12px;
+      color: white;
+      font-size: 12px;
+      font-weight: 600;
+      border: none;
+      border-radius: 6px;
+      height: 24px;
+      cursor: pointer;
+      transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.3s, opacity 0.3s;
+      letter-spacing: 0.2px;
+      white-space: nowrap;
+      background: linear-gradient(135deg, #a855f7 0%, #ec4899 100%);
+      box-shadow:
+        0 8px 24px rgba(168, 85, 247, 0.45),
+        0 2px 6px rgba(236, 72, 153, 0.3),
+        inset 0 1px 0 rgba(255,255,255,0.3);
+    }
+    .btn:hover {
+      transform: translateY(-1px) scale(1.02);
+      box-shadow:
+        0 12px 32px rgba(168, 85, 247, 0.55),
+        0 3px 10px rgba(236, 72, 153, 0.4),
+        inset 0 1px 0 rgba(255,255,255,0.4);
+    }
+    .btn:active { transform: translateY(0) scale(0.98); }
+    .btn.loading {
+      pointer-events: none;
+      opacity: 0.85;
+    }
+    /* Etat grise: pas sur page Devis OU devis vide */
+    .btn.disabled {
+      background: linear-gradient(135deg, #9ca3af 0%, #6b7280 100%);
+      box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+      cursor: not-allowed;
+      opacity: 0.7;
+      pointer-events: none;
+    }
+    .btn.disabled:hover { transform: none; }
+    .btn.disabled .icon {
+      color: #6b7280;
+      background: rgba(255,255,255,0.85);
+    }
+    .icon {
+      width: 18px;
+      height: 18px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.95);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      font-weight: 800;
+      color: #a855f7;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+    }
+    .spinner {
+      width: 14px;
+      height: 14px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      display: none;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .btn.loading .icon { display: none; }
+    .btn.loading .spinner { display: block; }
+    .label { font-weight: 600; }
+    .sublabel {
+      font-size: 11px;
+      opacity: 0.8;
+      font-weight: 400;
+      margin-left: 4px;
+    }
+  </style>
+</head>
+<body>
+  <button class="btn disabled" id="btn-pec" title="Lancer la PEC Omnicab pour ce devis">
+    <span class="icon">O</span>
+    <span class="spinner"></span>
+    <span class="label">Lancer la PEC</span>
+  </button>
+  <script>
+    const btn = document.getElementById('btn-pec');
+
+    btn.addEventListener('click', async () => {
+      if (btn.classList.contains('loading') || btn.classList.contains('disabled')) return;
+      btn.classList.add('loading');
+      try {
+        await window.cabflow.lancerPec();
+      } catch (e) {
+        console.error('PEC error:', e);
+      } finally {
+        setTimeout(() => btn.classList.remove('loading'), 1500);
+      }
+    });
+
+    // Recevoir l'etat du bouton depuis main process
+    // data = { enabled: bool, patient?: string, devisId?: string, reason?: string }
+    if (window.cabflow && window.cabflow.onOverlayInfo) {
+      window.cabflow.onOverlayInfo((data) => {
+        if (data && data.enabled) {
+          btn.classList.remove('disabled');
+          btn.title = 'Lancer la PEC Omnicab pour ' + (data.patient || 'ce devis');
+        } else {
+          btn.classList.add('disabled');
+          btn.title = data && data.reason ? 'PEC indisponible: ' + data.reason : 'Aucun devis valide';
+        }
+      });
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self'; img-src 'self'">
+  <title>PecExpress Desktop</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+
+    <!-- Header -->
+    <header class="header">
+      <div class="logo">
+        <div class="logo-icon">
+          <img src="../../assets/iconbis.jpg" alt="PecExpress">
+        </div>
+        <div class="logo-text">
+          <h1>PecExpress Desktop</h1>
+          <span class="version" id="version">v1.6.6</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Status Card -->
+    <section class="card status-card">
+      <h2>Statut</h2>
+      <div class="status-grid">
+        <div class="status-item">
+          <span class="status-label">Imprimante</span>
+          <span class="status-value" id="printer-status">
+            <span class="status-dot loading"></span>
+            Verification...
+          </span>
+        </div>
+        <div class="status-item">
+          <span class="status-label">Plateforme</span>
+          <span class="status-value" id="platform">-</span>
+        </div>
+      </div>
+      <div class="status-actions">
+        <button class="btn btn-primary" id="btn-reinstall">
+          Reinstaller l'imprimante
+        </button>
+        <button class="btn btn-secondary" id="btn-set-default">
+          Par defaut
+        </button>
+        <button class="btn btn-secondary" id="btn-test">
+          Test
+        </button>
+      </div>
+    </section>
+
+    <!-- Mode d'extraction -->
+    <section class="card">
+      <h2>Mode d'extraction</h2>
+      <p class="hint">Choisit comment Omnicab recupere les donnees du devis lors de l'impression.</p>
+      <div class="mode-selector">
+        <label class="mode-option">
+          <input type="radio" name="extraction-mode" value="auto" />
+          <span class="mode-label"><strong>Auto</strong> (recommande) — PDF d'abord, Logos si echec</span>
+        </label>
+        <label class="mode-option">
+          <input type="radio" name="extraction-mode" value="pdf" />
+          <span class="mode-label"><strong>PDF</strong> — imprimante virtuelle uniquement (universel)</span>
+        </label>
+        <label class="mode-option">
+          <input type="radio" name="extraction-mode" value="logos" />
+          <span class="mode-label"><strong>Logos</strong> — lecture directe BDD (rapide, Logos uniquement)</span>
+        </label>
+      </div>
+    </section>
+
+    <!-- Steps Card -->
+    <section class="card">
+      <h2>Comment utiliser</h2>
+      <div class="steps">
+        <div class="step">
+          <span class="step-number">1</span>
+          <span class="step-text">Selectionnez votre devis</span>
+        </div>
+        <div class="step">
+          <span class="step-number">2</span>
+          <span class="step-text">Selectionnez l'imprimante "Omnicab PEC" ✨</span>
+        </div>
+        <div class="step">
+          <span class="step-number">3</span>
+          <span class="step-text">Cliquez sur imprimer</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tools -->
+    <section class="card">
+      <h2>Outils</h2>
+      <div class="tools-grid">
+        <button class="btn btn-outline" id="btn-show-logs">
+          Afficher les logs
+        </button>
+        <button class="btn btn-outline" id="btn-logs">
+          Dossier logs
+        </button>
+        <button class="btn btn-outline" id="btn-open-site">
+          Ouvrir PecExpress
+        </button>
+      </div>
+    </section>
+
+    <!-- Logs Panel -->
+    <section class="card logs-panel-card" id="logs-panel" style="display:none;">
+      <div class="logs-header">
+        <h2>Logs</h2>
+        <div class="btn-group">
+          <button class="btn-sm" id="btn-refresh-logs">Rafraichir</button>
+          <button class="btn-sm" id="btn-copy-logs">Copier</button>
+          <button class="btn-sm" id="btn-close-logs">Fermer</button>
+        </div>
+      </div>
+      <p class="logs-info" id="logs-info"></p>
+      <pre class="logs-content" id="logs-content"></pre>
+    </section>
+
+    <!-- Debug -->
+    <section class="card debug-card">
+      <h2>Diagnostic</h2>
+      <div class="debug-content" id="debug-info">Chargement...</div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <p>PecExpress Desktop <span id="version-banner">v1.6.6</span></p>
+      <p class="footer-hint">L'application reste active dans la barre systeme</p>
+    </footer>
+  </div>
+
+  <!-- Toast notifications -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

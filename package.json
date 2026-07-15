@@ -1,0 +1,70 @@
+{
+  "name": "pec-express-connect",
+  "version": "1.0.31",
+  "description": "PEC Express Connect - Pont entre Logos (logiciel dentaire) et PEC Express (mondevisdentaire). Imprimante virtuelle + bouton in-app Logos.",
+  "main": "src/main/index.js",
+  "author": "PEC Express",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis --x64",
+    "pack": "electron-builder --dir"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.17",
+    "electron-updater": "^6.8.3",
+    "fontkit": "^2.0.4",
+    "form-data": "^4.0.0",
+    "mupdf": "^1.27.0",
+    "node-fetch": "^2.7.0",
+    "pdf-lib": "^1.17.1",
+    "pdf2json": "^4.0.3",
+    "pdfjs-dist": "^4.0.379",
+    "ws": "^8.19.0"
+  },
+  "devDependencies": {
+    "electron": "^31.7.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.pecexpress.connect",
+    "productName": "PEC Express Connect",
+    "copyright": "Copyright © 2026 PEC Express",
+    "asar": true,
+    "asarUnpack": [
+      "**/node_modules/mupdf/**",
+      "**/node_modules/pdfjs-dist/**"
+    ],
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      { "from": "resources/win", "to": "resources/win" },
+      { "from": "resources/backup", "to": "resources/backup" },
+      { "from": "resources/native", "to": "native" }
+    ],
+    "win": {
+      "target": [ { "target": "nsis", "arch": [ "x64" ] } ],
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": true,
+      "allowElevation": true,
+      "runAfterFinish": true,
+      "include": "build/installer.nsh",
+      "artifactName": "PEC-Express-Connect-Setup-${version}.${ext}",
+      "differentialPackage": false
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "oliviersitbon-ctrl",
+        "repo": "pec-express-connect-release"
+      }
+    ]
+  }
+}

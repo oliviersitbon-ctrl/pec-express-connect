@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>PEC Express Connect</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, sans-serif; }
+  body { background: #f4f6f8; color: #222; padding: 16px; user-select: none; }
+  header { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+  header h1 { font-size: 16px; font-weight: 600; }
+  header .version { font-size: 11px; color: #888; margin-left: auto; }
+
+  .card { background: #fff; border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+  .card h2 { font-size: 12px; text-transform: uppercase; color: #666; margin-bottom: 8px; letter-spacing: .5px; }
+
+  .status-row { display: flex; align-items: center; gap: 10px; }
+  .status-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .status-dot.ok { background: #28a745; }
+  .status-dot.ko { background: #dc3545; }
+  .status-dot.unknown { background: #999; }
+  .status-label { flex: 1; font-size: 13px; }
+  .status-label .sub { display: block; font-size: 11px; color: #888; margin-top: 2px; word-break: break-all; }
+
+  button { padding: 6px 12px; border: none; border-radius: 5px; cursor: pointer; font-size: 12px; font-weight: 500; }
+  button.primary { background: #0066cc; color: #fff; }
+  button.primary:hover { background: #0052a3; }
+  button.danger { background: #dc3545; color: #fff; }
+  button.danger:hover { background: #b02a37; }
+  button.secondary { background: #e9ecef; color: #333; }
+  button.secondary:hover { background: #dee2e6; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+
+  #logs-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); align-items: center; justify-content: center; z-index: 100; }
+  #logs-modal.open { display: flex; }
+  #logs-modal .modal-box { background: #fff; width: 90%; max-width: 800px; height: 80%; border-radius: 8px; display: flex; flex-direction: column; }
+  #logs-modal .modal-header { padding: 12px 16px; border-bottom: 1px solid #eee; display: flex; align-items: center; }
+  #logs-modal .modal-header h2 { font-size: 14px; }
+  #logs-modal .close-btn { margin-left: auto; background: none; color: #666; font-size: 18px; padding: 0 8px; cursor: pointer; }
+  #logs-content { flex: 1; overflow: auto; padding: 12px 16px; font-family: Consolas, monospace; font-size: 11px; white-space: pre-wrap; background: #1e1e1e; color: #d4d4d4; line-height: 1.4; }
+  #logs-content .err { color: #f48771; }
+  #logs-content .ok { color: #4ec9b0; }
+  #logs-content .warn { color: #dcdcaa; }
+  #logs-tabs { display: flex; gap: 4px; padding: 8px 16px 0; background: #fff; }
+  #logs-tabs button { background: #f0f0f0; color: #555; border-radius: 4px 4px 0 0; padding: 6px 12px; }
+  #logs-tabs button.active { background: #1e1e1e; color: #d4d4d4; }
+
+  #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #333; color: #fff; padding: 10px 16px; border-radius: 6px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  #toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>PEC Express Connect</h1>
+    <span class="version" id="version">v—</span>
+  </header>
+
+  <div class="card">
+    <h2>DLL Logos (bouton Omnicab)</h2>
+    <div class="status-row">
+      <span class="status-dot unknown" id="dll-dot"></span>
+      <div class="status-label">
+        <span id="dll-label">Vérification…</span>
+        <span class="sub" id="dll-sub"></span>
+      </div>
+      <button class="primary" id="btn-reinstall-dll" style="display:none">Réinstaller</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Service Windows</h2>
+    <div class="status-row">
+      <span class="status-dot unknown" id="svc-dot"></span>
+      <div class="status-label">
+        <span id="svc-label">Vérification…</span>
+        <span class="sub" id="svc-sub"></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button class="secondary" id="btn-logs">Voir les logs</button>
+    <button class="danger" id="btn-uninstall" style="margin-left:auto">Désinstaller complètement</button>
+  </div>
+
+  <div id="logs-modal">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h2>Logs PEC Express Connect</h2>
+        <button class="close-btn" id="logs-close">×</button>
+      </div>
+      <div id="logs-tabs">
+        <button class="active" data-tab="all">Tout</button>
+        <button data-tab="service">Service</button>
+        <button data-tab="app">App</button>
+        <button data-tab="dll">DLL</button>
+      </div>
+      <pre id="logs-content">Chargement…</pre>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+
+<script>
+const api = window.logosConnectApi;
+
+function applyStatus(status) {
+  if (!status) return;
+  document.getElementById('version').textContent = 'v' + status.version;
+
+  const dllDot = document.getElementById('dll-dot');
+  const dllLabel = document.getElementById('dll-label');
+  const dllSub = document.getElementById('dll-sub');
+  const btnReinstall = document.getElementById('btn-reinstall-dll');
+  if (status.dll.installed) {
+    dllDot.className = 'status-dot ok';
+    dllLabel.textContent = 'Installée';
+    dllSub.textContent = status.dll.path;
+    btnReinstall.style.display = 'none';
+  } else {
+    dllDot.className = 'status-dot ko';
+    dllLabel.textContent = 'Manquante (probablement supprimée par l\'antivirus)';
+    dllSub.textContent = status.dll.path;
+    btnReinstall.style.display = 'inline-block';
+  }
+
+  const svcDot = document.getElementById('svc-dot');
+  const svcLabel = document.getElementById('svc-label');
+  const svcSub = document.getElementById('svc-sub');
+  if (status.service.running) {
+    svcDot.className = 'status-dot ok';
+    svcLabel.textContent = 'Actif';
+    svcSub.textContent = 'PecExpressService (RUNNING)';
+  } else if (status.service.installed) {
+    svcDot.className = 'status-dot ko';
+    svcLabel.textContent = 'Installé mais arrêté';
+    svcSub.textContent = 'PecExpressService (STOPPED)';
+  } else {
+    svcDot.className = 'status-dot ko';
+    svcLabel.textContent = 'Non installé';
+    svcSub.textContent = '';
+  }
+}
+
+async function refreshStatus() {
+  try {
+    const status = await api.getStatus();
+    applyStatus(status);
+  } catch (e) { /* ignore */ }
+}
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+document.getElementById('btn-reinstall-dll').addEventListener('click', async () => {
+  const btn = document.getElementById('btn-reinstall-dll');
+  btn.disabled = true;
+  btn.textContent = 'Réinstallation…';
+  const res = await api.reinstallDll();
+  btn.disabled = false;
+  btn.textContent = 'Réinstaller';
+  toast(res.ok ? 'DLL réinstallée' : ('Échec: ' + res.error));
+  refreshStatus();
+});
+
+document.getElementById('btn-uninstall').addEventListener('click', async () => {
+  if (!confirm('Désinstaller complètement PEC Express Connect ?\n\nCela supprime: service Windows, DLL, application, registry et données.')) return;
+  const btn = document.getElementById('btn-uninstall');
+  btn.disabled = true;
+  btn.textContent = 'Désinstallation…';
+  const res = await api.uninstallAll();
+  if (res.ok) {
+    toast('Désinstallation lancée');
+  } else {
+    btn.disabled = false;
+    btn.textContent = 'Désinstaller complètement';
+    toast('Échec: ' + res.error);
+  }
+});
+
+let currentTab = 'all';
+document.getElementById('btn-logs').addEventListener('click', async () => {
+  document.getElementById('logs-modal').classList.add('open');
+  await loadLogs(currentTab);
+});
+document.getElementById('logs-close').addEventListener('click', () => {
+  document.getElementById('logs-modal').classList.remove('open');
+});
+document.querySelectorAll('#logs-tabs button').forEach(b => {
+  b.addEventListener('click', async () => {
+    document.querySelectorAll('#logs-tabs button').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    currentTab = b.dataset.tab;
+    await loadLogs(currentTab);
+  });
+});
+
+async function loadLogs(tab) {
+  const el = document.getElementById('logs-content');
+  el.textContent = 'Chargement…';
+  const lines = await api.getLogs(tab);
+  el.innerHTML = lines.map(l => {
+    const cls = /ERREUR|ERROR|FAIL|echec/i.test(l) ? 'err'
+              : /Injection OK|SUCCES|RUNNING/i.test(l) ? 'ok'
+              : /WARN/i.test(l) ? 'warn' : '';
+    const esc = l.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    return cls ? `<span class="${cls}">${esc}</span>` : esc;
+  }).join('\n');
+}
+
+// Listener temps-reel pousse par le main process
+api.onStatusChanged(applyStatus);
+
+refreshStatus();
+setInterval(refreshStatus, 5000);
+</script>
+</body>
+</html>
