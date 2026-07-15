@@ -17,6 +17,7 @@
       box-shadow:0 6px 18px rgba(99,102,241,.42), inset 0 1px 0 rgba(255,255,255,.3); }
     .btn:hover { transform:translateY(-1px) scale(1.02); }
     .btn:active { transform:translateY(0) scale(.98); }
+    .btn[hidden] { display:none; }
     .wrap.disabled .btn { background:linear-gradient(135deg,#9ca3af,#6b7280);
       box-shadow:0 2px 6px rgba(0,0,0,.15); cursor:not-allowed; opacity:.65; pointer-events:none; }
     .wrap.loading .btn { pointer-events:none; opacity:.85; }
@@ -37,6 +38,29 @@
     const wrap = document.getElementById('wrap');
     const bPec = document.getElementById('btn-pec');
     const bDev = document.getElementById('btn-devis');
+    // Modules actifs (pilotes cote site, par cabinet). Par defaut les deux.
+    let mods = { pec: true, devis: true };
+
+    function applyModules() {
+      const pecOn = mods.pec !== false;
+      const devOn = mods.devis !== false;
+      bPec.hidden = !pecOn;
+      bDev.hidden = !devOn;
+      // Un seul module actif => un seul bouton (declenche directement son wf).
+      // Aucun module actif => rien.
+      wrap.style.display = (!pecOn && !devOn) ? 'none' : 'flex';
+    }
+    async function loadModules() {
+      try {
+        if (window.cabflow && window.cabflow.getModules) {
+          const m = await window.cabflow.getModules();
+          if (m && typeof m === 'object') mods = m;
+        }
+      } catch (e) {}
+      applyModules();
+    }
+    loadModules();
+
     async function fire(intent) {
       if (wrap.classList.contains('disabled') || wrap.classList.contains('loading')) return;
       wrap.classList.add('loading');
@@ -46,8 +70,11 @@
     }
     bPec.addEventListener('click', () => fire('pec'));
     bDev.addEventListener('click', () => fire('devis'));
+
     if (window.cabflow && window.cabflow.onOverlayInfo) {
       window.cabflow.onOverlayInfo((data) => {
+        // Rafraichir les modules a chaque changement (IPC local, peu couteux).
+        loadModules();
         if (data && data.enabled) {
           wrap.classList.remove('disabled');
           const p = data.patient || 'ce devis';

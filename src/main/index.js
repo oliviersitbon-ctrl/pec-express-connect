@@ -558,8 +558,9 @@ function forceBrowserForeground() {
 /**
  * Construit l'URL Mon devis dentaire depuis les données CabFlowReader JSON
  */
-function buildCabFlowUrl(data, intent) {
-  const base = 'https://app.mondevisdentaire.com/prises-en-charge/nouvelle';
+function buildCabFlowUrl(data) {
+  let base = 'https://app.mondevisdentaire.com/prises-en-charge/nouvelle';
+  try { const _c = require('./config-manager').getConfig(); if (_c && _c.urls && _c.urls.pecNouvelle) base = _c.urls.pecNouvelle; } catch (e) {}
   const actes = (data.actes || []).map(a => ({
     code_ccam: a.ccam || '',
     nature_acte: a.nom || '',
@@ -571,8 +572,7 @@ function buildCabFlowUrl(data, intent) {
   const prat = data.praticienInfo || {};
   const mut = data.mutuelle || {};
   const params = new URLSearchParams({
-    source: 'mdd-desktop',
-    intent: intent || 'pec',
+    source: 'cabflow-desktop',
     nom: data.nom || '',
     prenom: data.prenom || '',
     date_naissance: data.dateNaissance || '',
@@ -589,6 +589,238 @@ function buildCabFlowUrl(data, intent) {
     actes: JSON.stringify(actes)
   });
   return base + '?' + params.toString();
+}
+
+/**
+ * Envoi de devis au patient - comportement IDENTIQUE a l'extension Chrome :
+ * poste le devis a /api/devis/share du site (cabinet identifie par x-api-key).
+ * Le serveur envoie l'email au patient avec le bouton "espace patient", relance
+ * chaque semaine sans reponse, et stoppe si un RDV de traitement est planifie.
+ *
+ * @param {Object} data - devis + patient issus de readAndOpenCabFlow (clean)
+ * @returns {Promise<boolean>}
+ */
+// --- Fenetre de saisie de l'email patient avant envoi du devis ---
+let _devisEmailWin = null;
+let _devisEmailResolver = null;
+let _devisEmailInfo = null;
+
+/**
+ * Ouvre une petite fenetre avec l'email patient (prerempli, modifiable) + un
+ * bouton Envoyer. Resout { confirmed:boolean, email:string }.
+ */
+function promptDevisEmail(info) {
+  return new Promise((resolve) => {
+    if (_devisEmailResolver) { const r = _devisEmailResolver; _devisEmailResolver = null; r({ confirmed: false }); }
+    if (_devisEmailWin && !_devisEmailWin.isDestroyed()) { try { _devisEmailWin.destroy(); } catch (e) {} }
+    _devisEmailInfo = info || {};
+    _devisEmailResolver = resolve;
+    try {
+      _devisEmailWin = new BrowserWindow({
+        width: 470, height: 340,
+        resizable: false, minimizable: false, maximizable: false,
+        title: 'Envoi de devis', alwaysOnTop: true, autoHideMenuBar: true,
+        webPreferences: {
+          nodeIntegration: false, contextIsolation: true,
+          preload: path.join(__dirname, '..', 'preload.js'),
+        },
+      });
+      _devisEmailWin.on('closed', () => {
+        _devisEmailWin = null;
+        if (_devisEmailResolver) { const r = _devisEmailResolver; _devisEmailResolver = null; r({ confirmed: false }); }
+      });
+      _devisEmailWin.loadFile(path.join(__dirname, '..', 'renderer', 'devis-email.html'));
+    } catch (e) {
+      log("[DEVIS] Impossible d'ouvrir la fenetre email: " + e.message);
+      _devisEmailResolver = null;
+      resolve({ confirmed: false });
+    }
+  });
+}
+
+/**
+ * Rafraichit l'etat des modules (PEC / Devis) depuis le site via
+ * /api/desktop/whoami et le memorise localement. Pilote quels boutons de
+ * l'overlay s'affichent dans Logos.
+ */
+async function refreshModules() {
+  try {
+    const cm = require('./config-manager');
+    const cfg = cm.getConfig() || {};
+    const apiKey = cfg.apiKey || '';
+    if (!apiKey) return; // poste pas encore appaire
+    const site = (cfg.urls && cfg.urls.site) || CONFIG.siteUrl;
+    const fetch = require('node-fetch');
+    const res = await fetch(site + '/api/desktop/whoami', { headers: { 'x-api-key': apiKey } });
+    const json = await res.json().catch(() => ({}));
+    if (res.ok && json && json.ok && json.modules) {
+      cm.setOverride('modules', { pec: json.modules.pec !== false, devis: json.modules.devis !== false });
+      log('[MODULES] pec=' + (json.modules.pec !== false) + ' devis=' + (json.modules.devis !== false));
+    }
+  } catch (e) {
+    log('[MODULES] refresh echec (non bloquant): ' + e.message);
+  }
+}
+
+async function sendDevisToPatient(data) {
+  const fetch = require('node-fetch');
+  const { getConfig } = require('./config-manager');
+  const cfg = getConfig() || {};
+  const site = (cfg.urls && cfg.urls.site) || CONFIG.siteUrl;
+  const apiKey = cfg.apiKey || '';
+
+  if (!apiKey) {
+    log('[DEVIS] Aucune cle API configuree - appairez ce poste (menu tray).');
+    dialog.showMessageBoxSync({
+      type: 'warning',
+      title: 'Mon devis dentaire - Envoi de devis',
+      message: "Ce poste n'est pas encore connecte a votre compte.",
+      detail: 'Ouvrez le menu Mon devis dentaire (icone pres de l\'horloge), cliquez "Connecter ce poste..." et collez la cle du connecteur (Parametres > Connecteur).',
+      buttons: ['OK'],
+    });
+    return false;
+  }
+
+  let email = (data.email || '').trim();
+  const phone = (data.portable || '').trim();
+
+  const actes = (data.actes || []).map(a => ({
+    code: a.ccam || '',
+    dent: (a.dent || '').replace(/\s+/g, ','),
+    libelle: a.nom || '',
+    montant: a.honoraires != null ? Number(a.honoraires) : 0,
+    baseRemb: a.base != null ? Number(a.base) : 0,
+    montantRemb: a.amo != null ? Number(a.amo) : 0,
+    montantNonRemb: a.reste != null ? Number(a.reste) : 0,
+  }));
+
+  const total = data.honorairesTotal != null
+    ? Number(data.honorairesTotal)
+    : actes.reduce((sum, a) => sum + (Number(a.montant) || 0), 0);
+
+  const who = [data.prenom, data.nom].filter(Boolean).join(' ') || 'ce patient';
+  // Fenetre de saisie/confirmation de l'email AVANT envoi : prerempli avec
+  // l'email lu dans Logos, modifiable (ou a saisir s'il manque).
+  const prompt = await promptDevisEmail({ who, email, acteCount: actes.length, total: total.toFixed(2) });
+  if (!prompt || !prompt.confirmed) { log('[DEVIS] Envoi annule par le praticien'); return false; }
+  email = (prompt.email || '').trim();
+  if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    log('[DEVIS] Email invalide/absent apres saisie: "' + email + '"');
+    dialog.showMessageBoxSync({
+      type: 'warning',
+      title: 'Mon devis dentaire - Envoi de devis',
+      message: 'Adresse email invalide.',
+      detail: "Le devis n'a pas ete envoye : renseignez une adresse email valide.",
+      buttons: ['OK'],
+    });
+    return false;
+  }
+
+  const payload = {
+    devisData: {
+      devisRef: data.devisId != null ? String(data.devisId) : undefined,
+      totalMontant: total,
+      actes,
+      patient: {
+        nom: data.nom || '',
+        prenom: data.prenom || '',
+        dateNaissance: data.dateNaissance || '',
+        nir: data.nir || '',
+      },
+    },
+    patient: {
+      email,
+      phone,
+      nom: data.nom || '',
+      prenom: data.prenom || '',
+      dateNaissance: data.dateNaissance || '',
+    },
+    channels: { email: true },
+  };
+
+  log('[DEVIS] POST ' + site + '/api/devis/share (' + actes.length + ' actes, ' +
+      total.toFixed(2) + ' EUR, email=' + (email || 'aucun') + ')');
+  try {
+    const res = await fetch(site + '/api/devis/share', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+      body: JSON.stringify(payload),
+    });
+    const txt = await res.text();
+    let json = {};
+    try { json = JSON.parse(txt); } catch (e) {}
+
+    if (res.status === 403 && /parsing/i.test(txt)) {
+      log('[DEVIS] Parsing non encore valide (403): ' + txt.slice(0, 200));
+      dialog.showMessageBoxSync({
+        type: 'info',
+        title: 'Mon devis dentaire - Envoi de devis',
+        message: 'Votre logiciel est en cours de validation.',
+        detail: "L'envoi de devis sera disponible sous 24 h (validation du format Logos). Le devis n'a pas ete envoye.",
+        buttons: ['OK'],
+      });
+      return false;
+    }
+
+    if (!res.ok || json.ok === false || json.error) {
+      const msg = (json && json.error) || ('HTTP ' + res.status);
+      log('[DEVIS] Echec envoi: ' + msg + ' - ' + txt.slice(0, 200));
+      dialog.showMessageBoxSync({
+        type: 'error',
+        title: 'Mon devis dentaire - Envoi de devis',
+        message: "Le devis n'a pas pu etre envoye.",
+        detail: msg,
+        buttons: ['OK'],
+      });
+      return false;
+    }
+
+    log('[DEVIS] Devis envoye OK - id=' + (json.devisId || '?') + ' url=' + (json.publicUrl || '?'));
+    dialog.showMessageBoxSync({
+      type: 'info',
+      title: 'Mon devis dentaire - Envoi de devis',
+      message: 'Devis envoye a ' + who + '.',
+      detail: email
+        ? ("Un email vient d'etre envoye a " + email + " avec le lien vers l'espace patient. Relance automatique chaque semaine sans reponse.")
+        : 'Le devis a ete enregistre.',
+      buttons: ['OK'],
+    });
+    return true;
+  } catch (e) {
+    log('[DEVIS] Exception envoi: ' + e.message);
+    dialog.showMessageBoxSync({
+      type: 'error',
+      title: 'Mon devis dentaire - Envoi de devis',
+      message: "Erreur reseau lors de l'envoi du devis.",
+      detail: e.message,
+      buttons: ['OK'],
+    });
+    return false;
+  }
+}
+
+/**
+ * Fenetre d'appairage du poste : le praticien colle la cle "Connecteur"
+ * (Parametres > Connecteur). On appelle /api/desktop/whoami pour recuperer la
+ * bonne base (MDD ou Labora) et on memorise cle + urls dans la config locale.
+ */
+function openConnectWindow() {
+  try {
+    const win = new BrowserWindow({
+      width: 470, height: 360,
+      resizable: false, minimizable: false, maximizable: false,
+      title: 'Connecter ce poste',
+      autoHideMenuBar: true,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        preload: path.join(__dirname, '..', 'preload.js'),
+      },
+    });
+    win.loadFile(path.join(__dirname, '..', 'renderer', 'connect.html'));
+  } catch (e) {
+    log("[PAIR] Impossible d'ouvrir la fenetre d'appairage: " + e.message);
+  }
 }
 
 /**
@@ -762,7 +994,17 @@ async function readAndOpenCabFlow(docName, intent) {
         // Pousse le nom patient + nb actes dans le loader (visible immediatement)
         updateLoaderPatient(data);
 
-        const url = buildCabFlowUrl(data, intent);
+        // === INTENT DEVIS : envoi du devis au patient (email + espace patient
+        // + relances hebdo), exactement comme l'extension Chrome. On N'OUVRE PAS
+        // le wizard PEC : on poste le devis a /api/devis/share.
+        if ((intent || 'pec') === 'devis') {
+          try { await sendDevisToPatient(data); }
+          catch (eDevis) { log('[DEVIS] Erreur envoi devis: ' + eDevis.message); }
+          resolve(true);
+          return;
+        }
+
+        const url = buildCabFlowUrl(data);
         log('[CABFLOW] URL: ' + url.substring(0, 120) + '...');
         openUrlInBrowser(url);
         resolve(true);
@@ -1035,6 +1277,11 @@ function createTray() {
           log('[TRAY] exception: ' + err.message);
         });
       }
+    },
+    { type: 'separator' },
+    {
+      label: 'Connecter ce poste\u2026',
+      click: openConnectWindow
     },
     { type: 'separator' },
     {
@@ -2101,6 +2348,51 @@ async function uploadToCloud(filePath) {
 function setupIpcHandlers() {
   log('[IPC] Setup des handlers IPC...');
 
+  // Appairage du poste : valide la cle via /api/desktop/whoami et memorise
+  // cle + base (MDD ou Labora) dans la config locale.
+  ipcMain.handle('desktop-pair', async (event, key) => {
+    const apiKey = (key || '').trim();
+    if (!apiKey) return { ok: false, error: 'Cle vide' };
+    const fetch = require('node-fetch');
+    const cm = require('./config-manager');
+    const probeBase = 'https://app.mondevisdentaire.com';
+    try {
+      const res = await fetch(probeBase + '/api/desktop/whoami', { headers: { 'x-api-key': apiKey } });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.ok) return { ok: false, error: (json && json.error) || ('HTTP ' + res.status) };
+      const base = json.base || probeBase;
+      const pecNouvelle = json.pecNouvelle || (base + '/prises-en-charge/nouvelle');
+      cm.setOverride('apiKey', apiKey);
+      cm.setOverride('urls.site', base);
+      cm.setOverride('urls.pecNouvelle', pecNouvelle);
+      if (json.modules && typeof json.modules === 'object') {
+        cm.setOverride('modules', { pec: json.modules.pec !== false, devis: json.modules.devis !== false });
+      }
+      log('[PAIR] Poste connecte a ' + (json.cabinetName || '?') + ' (' + base + ', labora=' + !!json.isLabora + ')');
+      return { ok: true, cabinetName: json.cabinetName || '', base, isLabora: !!json.isLabora };
+    } catch (e) {
+      log('[PAIR] Erreur appairage: ' + e.message);
+      return { ok: false, error: e.message };
+    }
+  });
+
+  // Modules actifs (PEC / Devis) - pilote l'affichage des boutons overlay.
+  ipcMain.handle('get-modules', () => {
+    try {
+      const m = (require('./config-manager').getConfig() || {}).modules || {};
+      return { pec: m.pec !== false, devis: m.devis !== false };
+    } catch (e) { return { pec: true, devis: true }; }
+  });
+
+  // Saisie email devis : la fenetre lit les infos initiales puis renvoie le resultat.
+  ipcMain.handle('devis-email-get', () => _devisEmailInfo || {});
+  ipcMain.on('devis-email-submit', (event, payload) => {
+    const r = _devisEmailResolver;
+    _devisEmailResolver = null;
+    if (_devisEmailWin && !_devisEmailWin.isDestroyed()) { try { _devisEmailWin.close(); } catch (e) {} }
+    if (r) r(payload && typeof payload === 'object' ? payload : { confirmed: false });
+  });
+
   ipcMain.handle('get-config', () => {
     log('[IPC] get-config appele');
     return CONFIG;
@@ -2404,6 +2696,8 @@ if (!gotTheLock) {
       loadConfig().then(() => {
         log('Configuration chargee OK');
         startUpdateChecker();
+        refreshModules();
+        setInterval(refreshModules, 15 * 60 * 1000);
       }).catch(err => {
         log('Erreur chargement config: ' + err.message);
       });
@@ -2412,16 +2706,21 @@ if (!gotTheLock) {
       // createLoaderWindow();
       // [OPT v1.0.16] WebSocket port 8082 desactive (legacy PecExpress Desktop, gain ~30 MB)
       // startWebSocketServer();
-      // [MDD] Bouton flottant (overlay) - remplace la DLL injectee omnicab.
+      startPecExpressPipeListener();
+
+      // Overlay flottant "Demande de PEC / Envoi de devis" sur la page Devis de Logos
       try {
         const overlay = require('./overlay-pec');
         overlay.setLogger(log);
         overlay.startOverlay(async (devisInfo, intent) => {
-          const ok = await readAndOpenCabFlow(null, intent || 'pec');
+          const doc = devisInfo && devisInfo.devisId != null ? String(devisInfo.devisId) : null;
+          const ok = await readAndOpenCabFlow(doc, intent || 'pec');
           return { success: ok };
         });
-        log('[STARTUP] Bouton flottant Mon devis dentaire demarre (overlay)');
-      } catch (eOv) { log('[STARTUP] Erreur overlay: ' + eOv.message); }
+        log('[STARTUP] Overlay Logos demarre');
+      } catch (eOv) {
+        log('[STARTUP] Overlay non demarre: ' + eOv.message);
+      }
 
       // Module dashboard (fenetre tray + watcher temps reel DLL/Service)
       try {

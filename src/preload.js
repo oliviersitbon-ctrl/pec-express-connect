@@ -26,6 +26,10 @@ contextBridge.exposeInMainWorld('cabflow', {
 
   // Overlay "Lancer la PEC" - clic du bouton flottant
   lancerPec: (intent) => ipcRenderer.invoke('overlay-lancer-pec', intent),
+  pairConnect: (key) => ipcRenderer.invoke('desktop-pair', key),
+  getModules: () => ipcRenderer.invoke('get-modules'),
+  devisEmailGet: () => ipcRenderer.invoke('devis-email-get'),
+  devisEmailSubmit: (payload) => ipcRenderer.send('devis-email-submit', payload),
   onOverlayInfo: (cb) => ipcRenderer.on('overlay-info', (e, data) => cb(data)),
 
   // Status

@@ -30,6 +30,8 @@ const DEFAULT_CONFIG = {
   //   'logos' = lecture directe BDD Logos via CabFlowReader.exe (rapide mais Logos uniquement)
   //   'auto'  = essaie PDF d'abord (timeout 3s), bascule sur Logos si echec
   extractionMode: 'auto',
+  apiKey: '',
+  modules: { pec: true, devis: true },
   pdfExtraction: {
     timeoutMs: 3000,           // delai avant fallback Logos en mode auto
     minConfidence: 60,         // score minimum pour considerer l'extraction valide
