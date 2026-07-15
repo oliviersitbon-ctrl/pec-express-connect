@@ -81,7 +81,7 @@ function tryCaptureSpl(fullPath, filename, source) {
     const stats = fs.statSync(fullPath);
     if (stats.size < 100) return;
 
-    // Filet de securite: si le fichier a ete cree AVANT le demarrage d'Omnicab,
+    // Filet de securite: si le fichier a ete cree AVANT le demarrage d'Mon devis dentaire,
     // il ne nous concerne pas (impression anterieure)
     if (_startupTime > 0 && stats.mtimeMs < _startupTime - 1000) {
       _ignoredAtStartup.add(filename);

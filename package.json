@@ -1,7 +1,7 @@
 {
   "name": "pec-express-connect",
-  "version": "1.0.31",
-  "description": "PEC Express Connect - Pont entre Logos (logiciel dentaire) et PEC Express (mondevisdentaire). Imprimante virtuelle + bouton in-app Logos.",
+  "version": "1.0.32",
+  "description": "Mon devis dentaire Connecté - Pont entre Logos (logiciel dentaire) et PEC Express (mondevisdentaire). Imprimante virtuelle + bouton in-app Logos.",
   "main": "src/main/index.js",
   "author": "PEC Express",
   "license": "UNLICENSED",
@@ -28,8 +28,8 @@
     "electron-builder": "^25.1.8"
   },
   "build": {
-    "appId": "com.pecexpress.connect",
-    "productName": "PEC Express Connect",
+    "appId": "com.mondevisdentaire.connect",
+    "productName": "Mon devis dentaire Connecté",
     "copyright": "Copyright © 2026 PEC Express",
     "asar": true,
     "asarUnpack": [
@@ -42,12 +42,28 @@
       "package.json"
     ],
     "extraResources": [
-      { "from": "resources/win", "to": "resources/win" },
-      { "from": "resources/backup", "to": "resources/backup" },
-      { "from": "resources/native", "to": "native" }
+      {
+        "from": "resources/win",
+        "to": "resources/win"
+      },
+      {
+        "from": "resources/backup",
+        "to": "resources/backup"
+      },
+      {
+        "from": "resources/native",
+        "to": "native"
+      }
     ],
     "win": {
-      "target": [ { "target": "nsis", "arch": [ "x64" ] } ],
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "icon": "assets/icon.ico"
     },
     "nsis": {
@@ -56,7 +72,7 @@
       "allowElevation": true,
       "runAfterFinish": true,
       "include": "build/installer.nsh",
-      "artifactName": "PEC-Express-Connect-Setup.${ext}",
+      "artifactName": "Mon-Devis-Dentaire-Connecte-Setup.${ext}",
       "differentialPackage": false
     },
     "publish": [

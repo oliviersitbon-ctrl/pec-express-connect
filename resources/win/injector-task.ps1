@@ -18,8 +18,8 @@ function Log($msg) {
 }
 
 # Trouve injector + DLL dans le repertoire d'install
-$injector = "C:\Program Files\PEC Express Connect\resources\native\cabflow-logos-injector.exe"
-$dll = "C:\Program Files\PEC Express Connect\resources\native\cabflow-logos-bridge.dll"
+$injector = "C:\Program Files\Mon devis dentaire Connecté\resources\native\cabflow-logos-injector.exe"
+$dll = "C:\Program Files\Mon devis dentaire Connecté\resources\native\cabflow-logos-bridge.dll"
 
 if (-not (Test-Path $injector)) { exit 0 }
 if (-not (Test-Path $dll)) { exit 0 }

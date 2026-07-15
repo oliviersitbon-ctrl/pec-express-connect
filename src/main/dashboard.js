@@ -1,5 +1,5 @@
 /**
- * Dashboard PEC Express Connect - fenetre tray + watcher temps reel DLL/Service
+ * Dashboard Mon devis dentaire Connecté - fenetre tray + watcher temps reel DLL/Service
  *
  * Initialisation:
  *   const dashboard = require('./dashboard');
@@ -30,7 +30,7 @@ let lastStatusJson = null;
 function log(msg) { logger('[DASHBOARD] ' + msg); }
 
 function dllInstalledPath() {
-  return path.join(process.env.ProgramFiles || 'C:\\Program Files', 'PEC Express Connect', 'resources', 'native', 'cabflow-logos-bridge.dll');
+  return path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Mon devis dentaire Connecté', 'resources', 'native', 'cabflow-logos-bridge.dll');
 }
 
 function nativeDir() {
@@ -112,7 +112,7 @@ function createWindow() {
     width: 480,
     height: 460,
     show: false,
-    title: 'PEC Express Connect v' + app.getVersion(),
+    title: 'Mon devis dentaire Connecté v' + app.getVersion(),
     resizable: false,
     maximizable: false,
     minimizable: false,
@@ -168,16 +168,16 @@ function registerIpc() {
 
   ipcMain.handle('lc-uninstall-all', async () => {
     log('uninstall-all demande');
-    const pf = (process.env.ProgramFiles || 'C:\\Program Files') + '\\PEC Express Connect';
+    const pf = (process.env.ProgramFiles || 'C:\\Program Files') + '\\Mon devis dentaire Connecté';
     const psScript = [
       `Stop-Service PecExpressService -Force -ErrorAction SilentlyContinue`,
       `sc.exe delete PecExpressService | Out-Null`,
-      `Get-Process 'PEC Express Connect','PecExpressService','LOGOS_w' -ErrorAction SilentlyContinue | Stop-Process -Force`,
+      `Get-Process 'Mon devis dentaire Connecté','PecExpressService','LOGOS_w' -ErrorAction SilentlyContinue | Stop-Process -Force`,
       `Start-Sleep -Seconds 2`,
-      `$u='${pf.replace(/'/g, "''")}\\Uninstall PEC Express Connect.exe'; if (Test-Path $u) { Start-Process -FilePath $u -ArgumentList '/S' -Wait; Start-Sleep -Seconds 3 }`,
+      `$u='${pf.replace(/'/g, "''")}\\Uninstall Mon devis dentaire Connecté.exe'; if (Test-Path $u) { Start-Process -FilePath $u -ArgumentList '/S' -Wait; Start-Sleep -Seconds 3 }`,
       `if (Test-Path '${pf.replace(/'/g, "''")}') { takeown /F '${pf.replace(/'/g, "''")}' /R /D O | Out-Null; icacls '${pf.replace(/'/g, "''")}' /grant '*S-1-5-32-544:F' /T /C | Out-Null; Remove-Item '${pf.replace(/'/g, "''")}' -Recurse -Force -ErrorAction SilentlyContinue }`,
       `Remove-ItemProperty 'HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run' -Name LogosConnect -ErrorAction SilentlyContinue`,
-      `Remove-Item 'HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\PEC Express Connect' -Recurse -Force -ErrorAction SilentlyContinue`,
+      `Remove-Item 'HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Mon devis dentaire Connecté' -Recurse -Force -ErrorAction SilentlyContinue`,
       `Remove-Item "$env:APPDATA\\logos-connect" -Recurse -Force -ErrorAction SilentlyContinue`,
       `Remove-Item "$env:USERPROFILE\\PecExpress" -Recurse -Force -ErrorAction SilentlyContinue`,
       `Remove-Item 'C:\\ProgramData\\PecExpress' -Recurse -Force -ErrorAction SilentlyContinue`

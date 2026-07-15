@@ -164,7 +164,7 @@ function readPatientDevisClean(opts) {
 }
 
 /**
- * Transforme le format brut parse en format compatible avec l'URL Omnicab
+ * Transforme le format brut parse en format compatible avec l'URL Mon devis dentaire
  * (compatible avec ce que CabFlowReader produit deja).
  */
 function toPecExpressFormat(parsed, civilInfo) {

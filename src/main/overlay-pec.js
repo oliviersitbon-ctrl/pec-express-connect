@@ -3,7 +3,7 @@
  *
  * - Fenetre BrowserWindow frameless, transparent, alwaysOnTop, top-right ecran
  * - Visible UNIQUEMENT quand l'utilisateur est sur la page Devis de Logos
- * - Au clic: lit le devis en RAM Logos + construit URL Omnicab + ouvre Chrome
+ * - Au clic: lit le devis en RAM Logos + construit URL Mon devis dentaire + ouvre Chrome
  */
 
 const { BrowserWindow, ipcMain, screen } = require('electron');

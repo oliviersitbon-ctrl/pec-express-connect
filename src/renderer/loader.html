@@ -113,9 +113,9 @@
     <div class="glow"></div>
     <div class="container">
         <div class="logo-container">
-            <img src="../../assets/iconbis.jpg" alt="Omnicab">
+            <img src="../../assets/icon.png" alt="Mon devis dentaire">
         </div>
-        <h1>Omnicab</h1>
+        <h1>Mon devis dentaire</h1>
         <div class="spinner"></div>
         <p class="status" id="status">Lecture du devis Logos...</p>
         <p class="patient" id="patient" style="font-size:13px;color:#374151;font-weight:600;margin-top:4px;min-height:18px;"></p>
@@ -137,7 +137,7 @@
       }
       if (window.cabflow && window.cabflow.onLoaderPatientInfo) {
         window.cabflow.onLoaderPatientInfo((data) => {
-          statusEl.textContent = 'Ouverture Omnicab PEC...';
+          statusEl.textContent = 'Ouverture Mon devis dentaire PEC...';
           if (data && (data.nom || data.prenom)) {
             patientEl.textContent = ((data.prenom || '') + ' ' + (data.nom || '')).trim();
           }

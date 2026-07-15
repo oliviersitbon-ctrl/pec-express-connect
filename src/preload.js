@@ -1,5 +1,5 @@
 /**
- * Omnicab Desktop v1.3.0 - Preload Script
+ * Mon devis dentaire Connecté v1.3.0 - Preload Script
  * Bridge securise entre le main process et le renderer
  */
 
@@ -89,7 +89,7 @@ contextBridge.exposeInMainWorld('cabflow', {
 
 console.log('[PRELOAD] === window.cabflow expose avec succes ===');
 
-// API dashboard PEC Express Connect (v1.0.15+)
+// API dashboard Mon devis dentaire Connecté (v1.0.15+)
 contextBridge.exposeInMainWorld('logosConnectApi', {
   getStatus: () => ipcRenderer.invoke('lc-get-status'),
   reinstallDll: () => ipcRenderer.invoke('lc-reinstall-dll'),

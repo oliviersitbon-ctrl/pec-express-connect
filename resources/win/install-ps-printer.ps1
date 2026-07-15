@@ -1,4 +1,4 @@
-# Installation imprimante virtuelle PostScript "Omnicab PEC"
+# Installation imprimante virtuelle PostScript "Mon devis dentaire PEC"
 #
 # Strategie:
 #  - Driver: "Generic / Text Only" PS... non, on utilise un driver PostScript natif Windows
@@ -18,7 +18,7 @@
 # (technique: PortPrompt = 0 sur "FILE:" via registre).
 
 param(
-    [string]$PrinterName = "Omnicab PEC",
+    [string]$PrinterName = "Mon devis dentaire PEC",
     [string]$SpoolDir = "C:\ProgramData\PecExpress\spool",
     [string]$DriverName = "Generic / Text Only",
     [switch]$UsePostScript = $true

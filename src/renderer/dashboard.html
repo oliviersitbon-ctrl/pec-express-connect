@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<title>PEC Express Connect</title>
+<title>Mon devis dentaire Connecté</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, sans-serif; }
   body { background: #f4f6f8; color: #222; padding: 16px; user-select: none; }
@@ -52,12 +52,12 @@
 </head>
 <body>
   <header>
-    <h1>PEC Express Connect</h1>
+    <h1>Mon devis dentaire Connecté</h1>
     <span class="version" id="version">v—</span>
   </header>
 
   <div class="card">
-    <h2>DLL Logos (bouton Omnicab)</h2>
+    <h2>DLL Logos (bouton Mon devis dentaire)</h2>
     <div class="status-row">
       <span class="status-dot unknown" id="dll-dot"></span>
       <div class="status-label">
@@ -87,7 +87,7 @@
   <div id="logs-modal">
     <div class="modal-box">
       <div class="modal-header">
-        <h2>Logs PEC Express Connect</h2>
+        <h2>Logs Mon devis dentaire Connecté</h2>
         <button class="close-btn" id="logs-close">×</button>
       </div>
       <div id="logs-tabs">
@@ -169,7 +169,7 @@ document.getElementById('btn-reinstall-dll').addEventListener('click', async () 
 });
 
 document.getElementById('btn-uninstall').addEventListener('click', async () => {
-  if (!confirm('Désinstaller complètement PEC Express Connect ?\n\nCela supprime: service Windows, DLL, application, registry et données.')) return;
+  if (!confirm('Désinstaller complètement Mon devis dentaire Connecté ?\n\nCela supprime: service Windows, DLL, application, registry et données.')) return;
   const btn = document.getElementById('btn-uninstall');
   btn.disabled = true;
   btn.textContent = 'Désinstallation…';

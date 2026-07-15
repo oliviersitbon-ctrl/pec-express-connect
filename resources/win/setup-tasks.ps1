@@ -1,10 +1,10 @@
-# Cree les taches planifiees Windows pour PEC Express Connect
+# Cree les taches planifiees Windows pour Mon devis dentaire Connecté
 # Appele par l'installeur NSIS en mode admin
 # 1. PecExpressInjector : injecte DLL dans Logos toutes les minutes (SYSTEM)
 # 2. PecExpressWatchdog : relance l'app si crash (SYSTEM)
 
 param(
-    [string]$InstallDir = "C:\Program Files\PEC Express Connect"
+    [string]$InstallDir = "C:\Program Files\Mon devis dentaire Connecté"
 )
 
 $ErrorActionPreference = "Continue"
@@ -31,10 +31,10 @@ schtasks /Delete /F /TN "PecExpressWatchdog" 2>$null | Out-Null
 # Cree le watchdog.ps1 dans ProgramData
 $watchdogPath = "C:\ProgramData\PecExpress\watchdog.ps1"
 $watchdogContent = @"
-`$exePath = "$InstallDir\PEC Express Connect.exe"
+`$exePath = "$InstallDir\Mon devis dentaire Connecté.exe"
 `$manualQuit = "`$env:LOCALAPPDATA\LogosConnect\.manual-quit"
 if (Test-Path `$manualQuit) { exit 0 }
-`$p = Get-Process "PEC Express Connect" -ErrorAction SilentlyContinue
+`$p = Get-Process "Mon devis dentaire Connecté" -ErrorAction SilentlyContinue
 if (-not `$p) { Start-Process `$exePath -ArgumentList "--hidden" -WindowStyle Hidden }
 "@
 Set-Content -Path $watchdogPath -Value $watchdogContent -Force
@@ -77,7 +77,7 @@ try {
 
     Register-ScheduledTask -TaskName "PecExpressWatchdog" `
         -Action $action2 -Trigger $trigger2 -Principal $principal2 -Settings $settings2 `
-        -Description "Relance PEC Express Connect si arret inattendu" -Force | Out-Null
+        -Description "Relance Mon devis dentaire Connecté si arret inattendu" -Force | Out-Null
     Log "Tache PecExpressWatchdog creee OK"
 } catch {
     Log "ERREUR creation Watchdog: $($_.Exception.Message)"

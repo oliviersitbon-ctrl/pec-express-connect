@@ -1,5 +1,5 @@
 /**
- * PEC Express Connect - Auto-features
+ * Mon devis dentaire Connecté - Auto-features
  *
  * 1. Auto-start au demarrage Windows (registry HKCU Run)
  * 2. Auto-update via electron-updater (pointe vers logos-connect-releases)
@@ -60,7 +60,7 @@ function setupAutoStart() {
       app.setLoginItemSettings({
         openAtLogin: true,
         openAsHidden: true,  // demarre en background (tray seulement)
-        name: 'PEC Express Connect'
+        name: 'Mon devis dentaire Connecté'
       });
       log('Auto-start Windows configure');
     } else {

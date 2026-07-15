@@ -1,4 +1,4 @@
-; PEC Express Connect NSIS Installer - v1.0.31 (fix service lock + logs precis)
+; Mon devis dentaire Connecté NSIS Installer - v1.0.31 (fix service lock + logs precis)
 ;
 ; Mode oneClick + perMachine. Tous les logs ecrits dans C:\ProgramData\PecExpress\installer.log
 
@@ -31,7 +31,7 @@
   Pop $1
   !insertmacro LogToFile "taskkill service.exe -> code=$0 out=$1"
 
-  nsExec::ExecToStack 'taskkill /f /t /im "PEC Express Connect.exe"'
+  nsExec::ExecToStack 'taskkill /f /t /im "Mon devis dentaire Connecté.exe"'
   Pop $0
   Pop $1
   !insertmacro LogToFile "taskkill app.exe -> code=$0 out=$1"
@@ -62,7 +62,7 @@
   Pop $1
   !insertmacro LogToFile "taskkill service.exe -> code=$0 out=$1"
 
-  nsExec::ExecToStack 'taskkill /f /t /im "PEC Express Connect.exe"'
+  nsExec::ExecToStack 'taskkill /f /t /im "Mon devis dentaire Connecté.exe"'
   Pop $0
   Pop $1
   !insertmacro LogToFile "taskkill app.exe -> code=$0 out=$1"
@@ -73,10 +73,10 @@
 
 !macro customInstall
   !insertmacro LogToFile "=== customInstall START ==="
-  DetailPrint "=== Configuration PEC Express Connect ==="
+  DetailPrint "=== Configuration Mon devis dentaire Connecté ==="
 
   ; Safety net
-  nsExec::Exec 'taskkill /f /t /im "PEC Express Connect.exe" 2>nul'
+  nsExec::Exec 'taskkill /f /t /im "Mon devis dentaire Connecté.exe" 2>nul'
   nsExec::Exec 'sc stop PecExpressService 2>nul'
   nsExec::Exec 'sc delete PecExpressService 2>nul'
   Sleep 500
@@ -84,12 +84,12 @@
   CreateDirectory "C:\ProgramData\PecExpress"
 
   DetailPrint "Installation du service PecExpressService..."
-  nsExec::ExecToStack 'sc create PecExpressService binPath= "\"$INSTDIR\resources\native\PecExpressService.exe\"" start= auto DisplayName= "PEC Express Connect Service"'
+  nsExec::ExecToStack 'sc create PecExpressService binPath= "\"$INSTDIR\resources\native\PecExpressService.exe\"" start= auto DisplayName= "Mon devis dentaire Connecté Service"'
   Pop $0
   Pop $1
   !insertmacro LogToFile "sc create -> code=$0 out=$1"
 
-  nsExec::ExecToStack 'sc description PecExpressService "Service event-driven PEC Express Connect: injecte la DLL PecExpress dans Logos via WMI ProcessStartTrace"'
+  nsExec::ExecToStack 'sc description PecExpressService "Service event-driven Mon devis dentaire Connecté: injecte la DLL PecExpress dans Logos via WMI ProcessStartTrace"'
   Pop $0
   Pop $1
   !insertmacro LogToFile "sc description -> code=$0 out=$1"
@@ -104,7 +104,7 @@
   Pop $1
   !insertmacro LogToFile "sc start -> code=$0 out=$1"
 
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "PecExpress" '"$INSTDIR\PEC Express Connect.exe" --hidden'
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "PecExpress" '"$INSTDIR\Mon devis dentaire Connecté.exe" --hidden'
   !insertmacro LogToFile "HKLM Run key written"
 
   !insertmacro LogToFile "=== customInstall END (OK) ==="

@@ -5,7 +5,7 @@
  * Retourne les données prêtes à être envoyées à app.mondevisdentaire.com/prises-en-charge/nouvelle
  */
 
-// Mapping des codes panier (numéros dans le tableau Logos → labels Omnicab)
+// Mapping des codes panier (numéros dans le tableau Logos → labels Mon devis dentaire)
 const PANIER_MAP = {
   '1': 'RAC0',
   '2': 'modéré',
@@ -155,7 +155,7 @@ function parseTotalMontant(line) {
 
 /**
  * Parse l'ensemble des lignes de texte extraites d'un devis
- * et retourne les données structurées pour Omnicab
+ * et retourne les données structurées pour Mon devis dentaire
  *
  * @param {string[]} textLines - Lignes de texte extraites du XPS/EMF
  * @returns {{ patient: Object, actes: Array } | null}
@@ -205,7 +205,7 @@ function parseDevis(textLines) {
   if (!nom || !nir) return null;
 
   // Regrouper par code CCAM : fusionner les dents, sommer les montants
-  // (Logos imprime une ligne par dent, Omnicab attend un acte avec N dents)
+  // (Logos imprime une ligne par dent, Mon devis dentaire attend un acte avec N dents)
   const acteMap = new Map();
   for (const acte of rawActes) {
     if (acteMap.has(acte.code_ccam)) {
@@ -234,11 +234,11 @@ function parseDevis(textLines) {
 }
 
 /**
- * Construit l'URL Omnicab complète à partir des données parsées
+ * Construit l'URL Mon devis dentaire complète à partir des données parsées
  * @param {{ patient: Object, actes: Array }} data
  * @returns {string}
  */
-function buildOmnicabUrl(data) {
+function buildDevisUrl(data) {
   const base = 'https://app.mondevisdentaire.com/prises-en-charge/nouvelle';
   const { patient, actes } = data;
 
@@ -254,4 +254,4 @@ function buildOmnicabUrl(data) {
   return `${base}?${params.toString()}`;
 }
 
-module.exports = { parseDevis, buildOmnicabUrl };
+module.exports = { parseDevis, buildDevisUrl };

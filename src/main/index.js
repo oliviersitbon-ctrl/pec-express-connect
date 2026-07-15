@@ -52,7 +52,7 @@ do shell script "
         log('Erreur installation macOS: ' + error.message);
         reject(error);
       } else {
-        log('Imprimante Omnicab PEC installée avec succès (macOS)!');
+        log('Imprimante Mon devis dentaire PEC installée avec succès (macOS)!');
         resolve(true);
       }
     });
@@ -88,8 +88,8 @@ Write-Output "User: $env:USERNAME"
 Write-Output "Admin: $([bool](([System.Security.Principal.WindowsPrincipal][System.Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)))"
 
 # Supprimer ancienne imprimante si elle existe
-Write-Output "Suppression ancienne Omnicab PEC..."
-Remove-Printer -Name "Omnicab PEC" -ErrorAction SilentlyContinue
+Write-Output "Suppression ancienne Mon devis dentaire PEC..."
+Remove-Printer -Name "Mon devis dentaire PEC" -ErrorAction SilentlyContinue
 
 # Creer le dossier spool
 $spoolDir = "${spoolDir.replace(/\\/g, '\\\\')}"
@@ -122,22 +122,22 @@ try {
     Write-Output "Note driver: $_"
 }
 
-Write-Output "=== Creation imprimante Omnicab PEC ==="
+Write-Output "=== Creation imprimante Mon devis dentaire PEC ==="
 try {
-    Add-Printer -Name "Omnicab PEC" -DriverName "Generic / Text Only" -PortName "NUL:" -ErrorAction Stop
-    Set-Printer -Name "Omnicab PEC" -KeepPrintedJobs $true -ErrorAction SilentlyContinue
-    Write-Output "SUCCES: Omnicab PEC cree (Generic / Text Only + NUL: + KeepPrintedJobs)"
+    Add-Printer -Name "Mon devis dentaire PEC" -DriverName "Generic / Text Only" -PortName "NUL:" -ErrorAction Stop
+    Set-Printer -Name "Mon devis dentaire PEC" -KeepPrintedJobs $true -ErrorAction SilentlyContinue
+    Write-Output "SUCCES: Mon devis dentaire PEC cree (Generic / Text Only + NUL: + KeepPrintedJobs)"
 } catch {
     Write-Output "ECHEC: $_"
 }
 
 # Verification
 Write-Output "=== VERIFICATION ==="
-$p = Get-Printer -Name "Omnicab PEC" -ErrorAction SilentlyContinue
+$p = Get-Printer -Name "Mon devis dentaire PEC" -ErrorAction SilentlyContinue
 if ($p) {
     Write-Output "OK: Name=$($p.Name) Driver=$($p.DriverName) Port=$($p.PortName)"
 } else {
-    Write-Output "ECHEC: Omnicab PEC NON TROUVEE"
+    Write-Output "ECHEC: Mon devis dentaire PEC NON TROUVEE"
     Write-Output "Imprimantes presentes:"
     Get-Printer | ForEach-Object { Write-Output "  $($_.Name)" }
 }
@@ -193,11 +193,11 @@ try { Stop-Transcript } catch {}
       // Verifier si l'imprimante existe
       let printerFound = false;
       try {
-        const check = execSync('powershell -NoProfile -Command "Get-Printer -Name \'Omnicab PEC\' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name"', { encoding: 'utf8', timeout: 10000 });
-        printerFound = check.trim().includes('Omnicab PEC');
+        const check = execSync('powershell -NoProfile -Command "Get-Printer -Name \'Mon devis dentaire PEC\' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name"', { encoding: 'utf8', timeout: 10000 });
+        printerFound = check.trim().includes('Mon devis dentaire PEC');
       } catch (e) { }
 
-      log('[INSTALL] Imprimante Omnicab PEC: ' + (printerFound ? 'INSTALLEE' : 'NON TROUVEE'));
+      log('[INSTALL] Imprimante Mon devis dentaire PEC: ' + (printerFound ? 'INSTALLEE' : 'NON TROUVEE'));
 
       // Nettoyage script (garder le log pour debug)
       try { fs.unlinkSync(scriptPath); } catch(e) {}
@@ -207,7 +207,7 @@ try { Stop-Transcript } catch {}
         reject(error);
       } else if (!printerFound) {
         log('[INSTALL] ECHEC: imprimante non creee');
-        reject(new Error('Imprimante Omnicab PEC non trouvee apres installation'));
+        reject(new Error('Imprimante Mon devis dentaire PEC non trouvee apres installation'));
       } else {
         log('[INSTALL] SUCCES !');
         resolve(true);
@@ -256,7 +256,7 @@ function printerExists() {
     if (process.platform === 'win32') {
       // Methode 1: Registre HKCU
       try {
-        const regCommand = 'reg query "HKCU\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Devices" /v "Omnicab PEC"';
+        const regCommand = 'reg query "HKCU\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Devices" /v "Mon devis dentaire PEC"';
         execSync(regCommand, { stdio: 'ignore' });
         log('[CHECK] Imprimante trouvee via HKCU (Devices)');
         return true;
@@ -266,7 +266,7 @@ function printerExists() {
 
       // Methode 2: Registre HKLM
       try {
-        const regCommand2 = 'reg query "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Print\\Printers\\Omnicab PEC"';
+        const regCommand2 = 'reg query "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Print\\Printers\\Mon devis dentaire PEC"';
         execSync(regCommand2, { stdio: 'ignore' });
         log('[CHECK] Imprimante trouvee via HKLM (Printers)');
         return true;
@@ -277,7 +277,7 @@ function printerExists() {
       // Methode 3: wmic (fallback fiable pour Add-Printer)
       try {
         const wmicResult = execSync('wmic printer get name', { encoding: 'utf8', timeout: 5000 });
-        const found = wmicResult.includes('Omnicab PEC');
+        const found = wmicResult.includes('Mon devis dentaire PEC');
         log('[CHECK] wmic printer list: ' + (found ? 'TROUVEE' : 'NON TROUVEE'));
         if (found) return true;
       } catch (e) {
@@ -448,7 +448,7 @@ function hideLoader() {
 const CONFIG = {
   siteUrl: 'https://app.mondevisdentaire.com',
   apiEndpoint: 'https://app.mondevisdentaire.com/api/desktop/process',
-  printerName: 'Omnicab PEC'
+  printerName: 'Mon devis dentaire PEC'
 };
 
 // ============================================
@@ -556,7 +556,7 @@ function forceBrowserForeground() {
 }
 
 /**
- * Construit l'URL Omnicab depuis les données CabFlowReader JSON
+ * Construit l'URL Mon devis dentaire depuis les données CabFlowReader JSON
  */
 function buildCabFlowUrl(data) {
   const base = 'https://app.mondevisdentaire.com/prises-en-charge/nouvelle';
@@ -591,7 +591,7 @@ function buildCabFlowUrl(data) {
 }
 
 /**
- * Lit le devis courant via CabFlowReader.exe et ouvre Omnicab dans Chrome
+ * Lit le devis courant via CabFlowReader.exe et ouvre Mon devis dentaire dans Chrome
  * @param {string} docName - Nom du document depuis WMI (peut contenir l'ID du devis)
  * @returns {Promise<boolean>} true si Chrome a ete ouvert avec succes
  */
@@ -864,7 +864,7 @@ function startWebSocketServer() {
 
 // Ecoute le pipe nomme \\.\pipe\cabflow-logos
 // La DLL injectee dans LOGOS_w.exe ecrit dedans quand l'utilisateur clique
-// le bouton Omnicab (apres avoir auto-sauvegarde le devis dans Logos).
+// le bouton Mon devis dentaire (apres avoir auto-sauvegarde le devis dans Logos).
 // Format des messages: une ligne JSON par message
 //   {"type":"open-pec","patient":"BLUM Denis"}
 let cabflowPipeServer = null;
@@ -940,7 +940,7 @@ function createWindow() {
     width: 500,
     height: 750,
     show: false,
-    title: 'Omnicab Desktop v' + app.getVersion(),
+    title: 'Mon devis dentaire Connecté v' + app.getVersion(),
     resizable: true,
     webPreferences: {
       nodeIntegration: false,
@@ -1003,13 +1003,13 @@ function createTray() {
   }
 
   tray = new Tray(icon);
-  tray.setToolTip('PEC Express Connect');
+  tray.setToolTip('Mon devis dentaire Connecté');
 
   const contextMenu = Menu.buildFromTemplate([
-    { label: 'Omnicab Desktop', enabled: false },
+    { label: 'Mon devis dentaire Connecté', enabled: false },
     { type: 'separator' },
     {
-      label: 'Ouvrir Omnicab',
+      label: 'Ouvrir Mon devis dentaire',
       click: () => shell.openExternal(CONFIG.siteUrl)
     },
     {
@@ -1268,7 +1268,7 @@ async function processEmfSpool(captured) {
 
 /**
  * Handler appele au CLIC sur le bouton overlay "Lancer la PEC".
- * Lit le devis live en RAM Logos + construit URL Omnicab + ouvre Chrome.
+ * Lit le devis live en RAM Logos + construit URL Mon devis dentaire + ouvre Chrome.
  *
  * @param {{devisId, patient, devisHwnd, patientHwnd}} info
  */
@@ -1297,7 +1297,7 @@ async function handleLancerPec(info) {
       actes: devisLive.actes
     });
 
-    // Construire URL Omnicab format compatible avec ce qui existe
+    // Construire URL Mon devis dentaire format compatible avec ce qui existe
     const actes = devisLive.actes.map(a => ({
       code_ccam: a.code_ccam || '',
       nature_acte: a.nature_acte || '',
@@ -1525,7 +1525,7 @@ while ($true) {
         // Mode 'auto' et 'pdf': on attend le SPL PostScript (pipeline imprimante virtuelle).
         // En mode 'auto' le fallback Logos est declenche par processPostScriptSpool en cas d'echec.
         const printerLower = printer.toLowerCase();
-        if (printerLower.includes('omnicab') || printerLower.includes('cabflow')) {
+        if (printerLower.includes('mon devis dentaire') || printerLower.includes('cabflow')) {
           let mode = 'auto';
           try {
             const { getConfig } = require('./config-manager');
@@ -1580,7 +1580,7 @@ while ($true) {
  */
 async function processPostScriptSpool(captured) {
   const { extractFromPsBuffer, setLogger: setPsLogger } = require('./ps-to-pdf');
-  const { extractFromPositionedText, buildOmnicabUrl, setLogger: setExtLogger } = require('./devis-extractor');
+  const { extractFromPositionedText, buildDevisUrl, setLogger: setExtLogger } = require('./devis-extractor');
   const { getConfig } = require('./config-manager');
   const fs = require('fs');
   const T0 = Date.now();
@@ -1631,8 +1631,8 @@ async function processPostScriptSpool(captured) {
       actes: data.actes
     });
 
-    const url = buildOmnicabUrl(data);
-    log('[PS] URL Omnicab COMPLETE:');
+    const url = buildDevisUrl(data);
+    log('[PS] URL Mon devis dentaire COMPLETE:');
     log('[PS] ' + url);
     log('[PS] === DONNEES EXTRAITES ===');
     log('[PS] Patient: nom=' + data.patient.nom + ' | prenom=' + data.patient.prenom +
@@ -1669,11 +1669,11 @@ async function processPostScriptSpool(captured) {
 
 /**
  * Traite un buffer XPS capture par le spool-parser
- * Extrait le texte via UnicodeString Glyphs, parse le devis, ouvre Omnicab dans Chrome
+ * Extrait le texte via UnicodeString Glyphs, parse le devis, ouvre Mon devis dentaire dans Chrome
  */
 async function processXpsSpool(captured) {
   const { parseXpsSpoolBuffer } = require('./xps-parser');
-  const { parseDevis, buildOmnicabUrl } = require('./devis-parser');
+  const { parseDevis, buildDevisUrl } = require('./devis-parser');
   const T0 = Date.now();
 
   // Si CabFlowReader a deja ouvert Chrome pour ce job, on skip le spool (fenetre 10s)
@@ -1708,8 +1708,8 @@ async function processXpsSpool(captured) {
     }
     log(`[TIMING] t=${Date.now()-T0}ms | Patient: ${data.patient.nom} ${data.patient.prenom} | ${data.actes.length} acte(s)`);
 
-    const url = buildOmnicabUrl(data);
-    log('[XPS] URL Omnicab: ' + url);
+    const url = buildDevisUrl(data);
+    log('[XPS] URL Mon devis dentaire: ' + url);
 
     hideLoader();
 
@@ -2163,7 +2163,7 @@ function setupIpcHandlers() {
     const { execSync } = require('child_process');
     try {
       if (process.platform === 'win32') {
-        const result = execSync('powershell -NoProfile -Command "Get-Printer -Name \'Omnicab PEC\' -ErrorAction SilentlyContinue"', { encoding: 'utf8' });
+        const result = execSync('powershell -NoProfile -Command "Get-Printer -Name \'Mon devis dentaire PEC\' -ErrorAction SilentlyContinue"', { encoding: 'utf8' });
         if (result.includes('Lancer la DPEC')) {
           return { installed: true, status: 'ready' };
         }
@@ -2263,7 +2263,7 @@ function setupIpcHandlers() {
       // Méthode 1: WMI via PowerShell
       addLog('Tentative 1: PowerShell WMI...');
       try {
-        const cmd = 'powershell -Command "$p = Get-WmiObject -Class Win32_Printer -Filter \\"Name=\'Omnicab PEC\'\\"; if($p){ $p.SetDefaultPrinter() } else { throw \'Imprimante introuvable\' }"';
+        const cmd = 'powershell -Command "$p = Get-WmiObject -Class Win32_Printer -Filter \\"Name=\'Mon devis dentaire PEC\'\\"; if($p){ $p.SetDefaultPrinter() } else { throw \'Imprimante introuvable\' }"';
         execSync(cmd, { encoding: 'utf8' });
         addLog('Succès commande PowerShell WMI');
         success = true;
@@ -2277,7 +2277,7 @@ function setupIpcHandlers() {
         try {
           const setScript = `
                    var network = WScript.CreateObject("WScript.Network");
-                   network.SetDefaultPrinter("Omnicab PEC");
+                   network.SetDefaultPrinter("Mon devis dentaire PEC");
                    `;
           const tempVbs = path.join(os.tmpdir(), 'setdefault.vbs');
           fs.writeFileSync(tempVbs, setScript);
@@ -2294,7 +2294,7 @@ function setupIpcHandlers() {
       if (!success) {
         addLog('Tentative 3: RUNDLL32...');
         try {
-          execSync('rundll32 printui.dll,PrintUIEntry /y /n "Omnicab PEC"');
+          execSync('rundll32 printui.dll,PrintUIEntry /y /n "Mon devis dentaire PEC"');
           addLog('Succès commande RUNDLL32');
           success = true;
         } catch (e3) {
@@ -2322,8 +2322,8 @@ function setupIpcHandlers() {
         addLog('Impossible de vérifier le défaut: ' + e.message);
       }
 
-      if (actualDefault.includes('Omnicab PEC')) {
-        addLog('CONFIRMATION: Omnicab PEC est bien par défaut !');
+      if (actualDefault.includes('Mon devis dentaire PEC')) {
+        addLog('CONFIRMATION: Mon devis dentaire PEC est bien par défaut !');
         return { success: true, logs: logs };
       } else {
         addLog(`ATTENTION: Le système dit que "${actualDefault}" est par défaut.`);
@@ -2350,7 +2350,7 @@ if (!gotTheLock) {
   // Afficher un message à l'utilisateur avant de quitter
   app.whenReady().then(() => {
     dialog.showErrorBox(
-      "Omnicab Desktop déjà lancé",
+      "Mon devis dentaire Connecté est déjà lancé",
       "Une autre instance de l'application est déjà en cours d'exécution.\n\nVeuillez vérifier dans la barre des tâches ou fermer l'autre instance avant de recommencer."
     );
     app.quit();
@@ -2396,7 +2396,7 @@ if (!gotTheLock) {
       // ===== DEMARRAGE LOGOS CONNECT : tray-only, AUCUNE fenetre =====
       // Pas de bootstrap "PecExpress Desktop", pas d'install imprimante, pas de setup window.
       // Le service Windows PecExpressService + DLL injection gerent tout.
-      app.setAppUserModelId("fr.omnicab.logos-connect");
+      app.setAppUserModelId("fr.mondevisdentaire.connecte");
 
       setupIpcHandlers();
       ensureDirectories();
@@ -2422,7 +2422,7 @@ if (!gotTheLock) {
         log('[STARTUP] Erreur init dashboard (non bloquant): ' + e.message);
       }
 
-      // [OPT v1.0.16] Modules legacy PecExpress Desktop desactives (pas d'imprimante en PEC Express Connect)
+      // [OPT v1.0.16] Modules legacy PecExpress Desktop desactives (pas d'imprimante en Mon devis dentaire Connecté)
       // - spool-parser, emfspool-parser, logos-watcher, startPrintJobMonitor
       // Gain attendu: ~50 MB + moins de FS watchers + moins de WMI subscriptions
       // (Si besoin de re-tester avec ces modules, decommenter le bloc ci-dessous)

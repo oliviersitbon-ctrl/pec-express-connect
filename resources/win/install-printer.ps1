@@ -107,7 +107,7 @@ try {
 
 try {
     Add-Printer -Name $PrinterName -DriverName $DriverName -PortName $PortName `
-                -Comment "PecExpress PEC - PEC Express Connect" -ErrorAction Stop
+                -Comment "PecExpress PEC - Mon devis dentaire Connecté" -ErrorAction Stop
     Log "Imprimante $PrinterName creee"
 } catch {
     Log "Erreur Add-Printer: $($_.Exception.Message)"

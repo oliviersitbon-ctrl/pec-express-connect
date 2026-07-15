@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <title>Omnicab PEC</title>
+  <title>Mon devis dentaire PEC</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; -webkit-user-select: none; user-select: none; }
     html, body {
@@ -98,7 +98,7 @@
   </style>
 </head>
 <body>
-  <button class="btn disabled" id="btn-pec" title="Lancer la PEC Omnicab pour ce devis">
+  <button class="btn disabled" id="btn-pec" title="Lancer la PEC pour ce devis">
     <span class="icon">O</span>
     <span class="spinner"></span>
     <span class="label">Lancer la PEC</span>
@@ -124,7 +124,7 @@
       window.cabflow.onOverlayInfo((data) => {
         if (data && data.enabled) {
           btn.classList.remove('disabled');
-          btn.title = 'Lancer la PEC Omnicab pour ' + (data.patient || 'ce devis');
+          btn.title = 'Lancer la PEC pour ' + (data.patient || 'ce devis');
         } else {
           btn.classList.add('disabled');
           btn.title = data && data.reason ? 'PEC indisponible: ' + data.reason : 'Aucun devis valide';

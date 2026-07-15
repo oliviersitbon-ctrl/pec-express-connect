@@ -11,7 +11,7 @@
  *  6. Score de confiance (0-100)
  *
  * Compatibilite: garde la sortie identique a devis-parser.js (patient.nom/prenom/
- * dateNaissance/nir + actes[]) pour que buildOmnicabUrl marche tel quel.
+ * dateNaissance/nir + actes[]) pour que buildDevisUrl marche tel quel.
  */
 
 const PANIER_MAP = {
@@ -768,9 +768,9 @@ function extractFromPositionedText(positionedLines, chars) {
 }
 
 /**
- * Construit l'URL Omnicab compatible avec buildOmnicabUrl existant
+ * Construit l'URL Mon devis dentaire compatible avec buildDevisUrl existant
  */
-function buildOmnicabUrl(data) {
+function buildDevisUrl(data) {
   const base = 'https://app.mondevisdentaire.com/prises-en-charge/nouvelle';
   const params = new URLSearchParams({
     source: 'cabflow-desktop-pdf',
@@ -786,7 +786,7 @@ function buildOmnicabUrl(data) {
 module.exports = {
   setLogger,
   extractFromPositionedText,
-  buildOmnicabUrl,
+  buildDevisUrl,
   // exports pour tests
   groupByVisualLine,
   extractPatient,
