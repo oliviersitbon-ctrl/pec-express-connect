@@ -1170,64 +1170,11 @@ async function readAndOpenCabFlow(docName, intent) {
             ' | Devis: ' + data.devisId + ' | ' + (data.actes || []).length + ' actes' +
             ' | NIR: ' + (data.nir || 'ABSENT'));
 
-        // === SÉLECTION DU BON DEVIS (celui AFFICHÉ, pas "le plus récent") ===
-        // CabFlowReader retombe sur le devis le plus récent quand le devisId
-        // demandé n'est pas trouvé (le connecteur ne lui transmet pas le devisId
-        // affiché). Mais la DLL injectée nous donne le TOTAL honoraires AFFICHÉ
-        // (uiCtx.honoraires), et CabFlowReader liste TOUS les devis du patient sur
-        // stderr (« DevisID=… Date=… MemoOff=0x… »). On retient donc le devis dont
-        // le total correspond à l'écran → on lit le BON devis même si le praticien
-        // est sur un ancien devis. Best-effort : à défaut, on garde la sélection
-        // par défaut de CabFlowReader.
-        try {
-          const uiCtx = global._cabflowUiContext;
-          if (uiCtx && uiCtx.honoraires > 0 && mmoCtx.patientsDir) {
-            const cands = [...stderr.matchAll(/DevisID=(\d+)\s+Date=(\S+)\s+MemoOff=0x([0-9A-Fa-f]+)/g)]
-              .map(m => ({ devId: parseInt(m[1], 10), memoOff: parseInt(m[3], 16) }));
-            if (cands.length > 1) {
-              const mmoParser = require('./logos-mmo-parser');
-              mmoParser.setLogger(() => {});
-              const mmoPath = require('path').join(mmoCtx.patientsDir, 'DEVIS.MMO');
-              // Lecture du fichier MMO UNE SEULE FOIS (au lieu d'une lecture complète
-              // par candidat) : on n'extrait que l'attribut honorairesG de chaque
-              // devis → l'ouverture reste rapide même avec beaucoup de devis.
-              let best = null;
-              let mmoBuf = null;
-              try { mmoBuf = require('fs').readFileSync(mmoPath); } catch (e) { mmoBuf = null; }
-              if (mmoBuf) {
-                for (const c of cands) {
-                  try {
-                    const raw = mmoParser.stripPageHeaders(mmoBuf, c.memoOff, 60000);
-                    const s = raw.indexOf('<DevisGraphique');
-                    if (s < 0) continue;
-                    const gt = raw.indexOf('>', s);
-                    const tag = gt > s ? raw.slice(s, gt + 1) : raw.slice(s, s + 2000);
-                    const mHon = tag.match(/honorairesG="([^"]*)"/);
-                    const hon = mHon ? parseFloat(String(mHon[1]).replace(',', '.')) : NaN;
-                    if (!isNaN(hon)) {
-                      const diff = Math.abs(hon - uiCtx.honoraires);
-                      if (best === null || diff < best.diff) best = { c, hon, diff };
-                    }
-                  } catch (e) { /* candidat illisible → ignoré */ }
-                }
-              }
-              if (best && best.diff <= 0.5 && best.c.memoOff !== mmoCtx.memoOffset) {
-                log('[CABFLOW] Devis AFFICHÉ retrouvé par le total UI (' + uiCtx.honoraires +
-                    '€) → devisId=' + best.c.devId + ' au lieu du plus récent (devisId=' + mmoCtx.devisId + ')');
-                mmoCtx.devisId = best.c.devId;
-                mmoCtx.memoOffset = best.c.memoOff;
-                data.devisId = best.c.devId;
-              } else if (best && best.diff <= 0.5) {
-                log('[CABFLOW] Devis sélectionné = devis affiché (total UI concordant)');
-              } else {
-                log('[CABFLOW] Aucun devis ne correspond au total UI (' + uiCtx.honoraires +
-                    '€) — sélection CabFlowReader conservée');
-              }
-            }
-          }
-        } catch (eSel) {
-          log('[CABFLOW] Sélection du devis affiché échouée (non bloquant): ' + eSel.message);
-        }
+        // NB : on ne « devine » PLUS le devis affiché à partir du MMO (ambigu quand
+        // le patient a plusieurs devis le MÊME JOUR). La SOURCE DE VÉRITÉ est le
+        // PDF IMPRIMÉ (Shift+clic), parsé plus bas dans le flux PEC. Le re-parse MMO
+        // ci-dessous ne sert plus que de repli d'affichage si l'impression/le parse
+        // du PDF échoue.
 
         // === RE-PARSE PROPRE via notre parseur MMO Node.js ===
         // CabFlowReader.exe a un bug: il ne strip pas les 12 bytes de header
@@ -1361,152 +1308,124 @@ async function readAndOpenCabFlow(docName, intent) {
           return;
         }
 
-        // === INTENT PEC — OUVERTURE INSTANTANÉE ===
-        // On ouvre MDD IMMÉDIATEMENT avec les données déjà lues en local sur Logos
-        // (patient + actes CabFlowReader), SANS attendre l'écriture du PDF ni le
-        // parseur serveur. On ne déclenche ici que le Shift+clic imprimante ; le
-        // PDF se génère ensuite tout seul et part au serveur EN TÂCHE DE FOND
-        // (boucle signature / réimportation, via logos_numero).
+        // === INTENT PEC — SOURCE DE VÉRITÉ = LE PDF IMPRIMÉ ===
+        // VERROUILLAGE anti-confusion entre devis. Le SEUL moyen certain de savoir
+        // QUEL devis est affiché, c'est de l'IMPRIMER (Shift+clic) et de lire LE PDF
+        // QU'ON VIENT D'IMPRIMER. Le fichier MMO est ambigu quand le patient a
+        // plusieurs devis le MÊME JOUR (« le plus récent par date » ne les
+        // départage pas) → on n'utilise PLUS le MMO pour décider du devis.
         //
-        // ⚠️ Le Shift+clic EXIGE que Logos soit au premier plan : on le fait ICI,
-        // AVANT d'ouvrir le navigateur (qui volerait le focus), et on n'attend que
-        // le CLIC — pas le fichier.
-        //
-        // NB : le panier et le détail multi-matériaux proviennent du parseur
-        // serveur du PDF (colonnes non lues en local) ; à l'ouverture instantanée
-        // ils peuvent être vides/partiels et le praticien les complète. Le parse
-        // serveur continue en arrière-plan.
+        // Déroulé : impression → on attend l'apparition du Devis-*.pdf FRAIS (=
+        // le devis affiché) → on le parse (serveur) → on ouvre MDD avec CES actes
+        // → on attache CE MÊME PDF pour la signature. Aucune ambiguïté possible :
+        // devis affiché = imprimé = montré = signé.
         try {
+          const site = CONFIG.siteUrl;
           const overlayMod = require('./overlay-pec');
+          const devisPdf = require('./logos-devis-pdf');
+          devisPdf.setLogger(log);
+
+          // Instantané AVANT impression : sert à repérer LE nouveau PDF (celui
+          // qu'on va imprimer), pas simplement « le plus récent ».
+          const before = devisPdf.listDevisPdfs(data.patientsDir, data.logosNumero, 12);
+          const beforeNames = new Set(before.map(c => c.fileName));
+          const beforeNewest = before.length ? before[0].mtimeMs : 0;
+
+          // 1) Impression (Shift+clic) + attente interne du PDF (Logos au 1er plan).
           try {
             overlayMod.setSuspended(true);
-            await new Promise(r => setTimeout(r, 250)); // laisse l'overlay quitter le hit-test
+            await new Promise(r => setTimeout(r, 250));
             const printer = require('./logos-print-devis');
             printer.setLogger(log);
-            const clicked = await printer.shiftClickImprimer(); // CLIC SEUL — on n'attend PAS le PDF
-            if (clicked && clicked.ok) {
-              log('[PEC] Shift+clic imprimante OK — PDF en génération, ouverture immédiate de MDD');
-            } else {
-              log('[PEC] Shift+clic imprimante non effectué (' + ((clicked && clicked.reason) || '?') +
-                  ') — ouverture immédiate quand même');
-            }
-            // Court délai pour laisser Logos enregistrer l'impression AVANT que
-            // l'ouverture du navigateur ne prenne le focus. Ne bloque pas sur le PDF.
-            await new Promise(r => setTimeout(r, 200));
+            await printer.printAndWaitPdf(data.patientsDir, data.logosNumero);
           } catch (ePrint) {
             log('[PEC] Impression auto échouée (non bloquant): ' + ePrint.message);
           } finally {
             try { overlayMod.setSuspended(false); } catch (e) {}
           }
-        } catch (eOuter) {
-          log('[PEC] Bloc impression instant-open erreur (non bloquant): ' + eOuter.message);
-        }
 
-        // Ouverture IMMÉDIATE du wizard PEC depuis les données locales Logos
-        // (auto-login magic-link via /api/desktop/session, repli session sinon).
-        log('[CABFLOW] Ouverture INSTANTANÉE de l assistant PEC (données Logos locales)...');
-        await openPecWizard(data);
-        resolve(true);
-
-        // === TÂCHE DE FOND (non bloquante) : dès que Logos a écrit le PDF officiel,
-        // on l'envoie au serveur pour la boucle signature / réimportation. Ceci
-        // n'affecte pas l'ouverture ci-dessus (déjà faite).
-        void (async () => {
-          try {
-            const site = CONFIG.siteUrl;
-            const devisPdf = require('./logos-devis-pdf');
-            devisPdf.setLogger(log);
-
-            // Attend qu'au moins un Devis-*.pdf frais apparaisse (Logos écrit le
-            // PDF quelques secondes après le Shift+clic).
-            let candidates = devisPdf.listDevisPdfs(data.patientsDir, data.logosNumero, 6);
-            for (let i = 0; i < 30 && candidates.length === 0; i++) { // ~24 s max
-              await new Promise(r => setTimeout(r, 800));
-              candidates = devisPdf.listDevisPdfs(data.patientsDir, data.logosNumero, 6);
+          // 2) Identifie LE PDF QU'ON VIENT D'IMPRIMER : un NOUVEAU fichier, ou un
+          //    fichier ré-enregistré (mtime > avant le clic). On ne prend jamais un
+          //    ancien devis « le plus récent » par défaut.
+          let printed = null;
+          for (let i = 0; i < 10 && !printed; i++) {
+            const now = devisPdf.listDevisPdfs(data.patientsDir, data.logosNumero, 12);
+            for (const c of now) {
+              if (!beforeNames.has(c.fileName) || c.mtimeMs > beforeNewest + 1) { printed = c; break; }
             }
-            if (!candidates.length) {
-              log('[PEC][bg] Aucun PDF officiel détecté — devis non transmis (impression manquée ?)');
-              return;
-            }
-
-            const { getConfig } = require('./config-manager');
-            const apiKey = (getConfig() || {}).apiKey || '';
-            if (!apiKey) {
-              // Repli minimal : alimente au moins la table panier avec le plus récent.
-              await fetchServerParsedDevis(site, candidates[0].base64, candidates[0].fileName);
-              log('[PEC][bg] Pas de clé API — PDF le plus récent envoyé au parseur (panier) seulement');
-              return;
-            }
-
-            // Actes lus dans Logos (référence) : on n'attache pour signature QUE le
-            // PDF dont les actes correspondent (le praticien peut être sur un ancien
-            // devis alors que le dossier contient un Devis-*.pdf plus récent).
-            const refActes = (data.actes || []).map(a => ({
-              code: a.ccam || a.code || a.cotation || '',
-              montant: (a.honoraires != null ? a.honoraires : a.montant),
-              dent: a.dent || a.numero_dent || '',
-            }));
-
-            const fetch = require('node-fetch');
-            let done = false;
-            for (const cand of candidates) {
-              try {
-                const resp = await fetch(site + '/api/desktop/devis-pdf', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
-                  body: JSON.stringify({
-                    logosNumero: (data.logosNumero != null ? String(data.logosNumero) : ''),
-                    pdfBase64: cand.base64,
-                    pdfFileName: cand.fileName,
-                    software: 'logosw',
-                    refActes,
-                  }),
-                });
-                const j = await resp.json().catch(() => ({}));
-                if (j && j.matched === false) {
-                  log('[PEC][bg] ' + cand.fileName + ' ne correspond pas aux actes Logos — candidat suivant');
-                  continue; // le panier de ce devis est appris côté serveur quand même
-                }
-                const etat = j && j.attached ? 'attaché au devis PEC (signable)'
-                  : (j && j.staged ? 'mis en attente (devis PEC pas encore créé)' : 'transmis');
-                log('[PEC][bg] Bon PDF (' + cand.fileName + ') → ' + etat + ' + table panier alimentée');
-                done = true;
-                break;
-              } catch (eOne) {
-                log('[PEC][bg] Envoi ' + cand.fileName + ' échoué: ' + eOne.message + ' — candidat suivant');
-              }
-            }
-            if (!done) {
-              // REPLI : aucun candidat ne "matche" les actes lus dans Logos (écart
-              // de format, devis local ≠ imprimé, etc.). Plutôt que de laisser le
-              // patient SANS devis à signer, on attache quand même le PLUS RÉCENT
-              // (= celui qu'on vient d'imprimer), SANS comparaison.
-              try {
-                const cand = candidates[0];
-                const resp = await fetch(site + '/api/desktop/devis-pdf', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
-                  body: JSON.stringify({
-                    logosNumero: (data.logosNumero != null ? String(data.logosNumero) : ''),
-                    pdfBase64: cand.base64,
-                    pdfFileName: cand.fileName,
-                    software: 'logosw',
-                    // pas de refActes → attache inconditionnelle
-                  }),
-                });
-                const j = await resp.json().catch(() => ({}));
-                const etat = j && j.attached ? 'attaché au devis PEC (signable)'
-                  : (j && j.staged ? 'mis en attente (devis PEC pas encore créé)' : 'transmis');
-                log('[PEC][bg] Aucun PDF ne matchait les actes → repli : plus récent (' +
-                    cand.fileName + ') ' + etat);
-              } catch (eF) {
-                log('[PEC][bg] Repli d\'attache échoué (non bloquant): ' + eF.message);
-              }
-            }
-          } catch (eBg) {
-            log('[PEC][bg] Tâche de fond PDF échouée (non bloquant): ' + eBg.message);
+            if (!printed) await new Promise(r => setTimeout(r, 800));
           }
-        })();
+
+          if (!printed) {
+            // Impression manquée : on NE DEVINE PAS un devis. Repli sur les actes
+            // CabFlowReader déjà lus, en signalant l'incertitude.
+            log('[PEC] Aucun PDF frais après impression — repli sur actes CabFlowReader (à vérifier)');
+          } else {
+            log('[PEC] PDF imprimé (= devis affiché): ' + printed.fileName + ' (' + printed.sizeKb + ' Ko)');
+            // 3) Parse CE PDF → actes du devis AFFICHÉ (source de vérité).
+            const parsedPec = await fetchServerParsedDevis(site, printed.base64, printed.fileName);
+            if (parsedPec && Array.isArray(parsedPec.actes) && parsedPec.actes.length) {
+              data.actes = parsedPec.actes;
+              if (parsedPec.patient) {
+                data.nom = parsedPec.patient.nom || data.nom;
+                data.prenom = parsedPec.patient.prenom || data.prenom;
+                data.dateNaissance = parsedPec.patient.dateNaissance || data.dateNaissance;
+                data.nir = parsedPec.patient.nir || data.nir;
+                data.nirCle = parsedPec.patient.nirCle || data.nirCle;
+              }
+              log('[PEC] Wizard prérempli depuis le PDF imprimé (' + parsedPec.actes.length + ' actes)');
+            } else {
+              log('[PEC] Parse du PDF imprimé indisponible — repli sur actes CabFlowReader');
+            }
+          }
+
+          // 4) Ouverture MDD avec le devis AFFICHÉ.
+          log('[CABFLOW] Ouverture de l assistant PEC (devis imprimé)...');
+          await openPecWizard(data);
+          resolve(true);
+
+          // 5) Attache CE MÊME PDF imprimé pour la signature (aucune comparaison :
+          //    c'est le devis affiché, par construction). Tâche de fond, 3 essais
+          //    en cas d'échec réseau ; le staging + createPecRecords gèrent le
+          //    timing (le devis PEC n'existe qu'une fois l'assistant terminé).
+          if (printed) {
+            const attachPdf = printed;
+            void (async () => {
+              try {
+                const { getConfig } = require('./config-manager');
+                const apiKey = (getConfig() || {}).apiKey || '';
+                if (!apiKey) { log('[PEC][bg] Pas de clé API — devis non attaché'); return; }
+                const fetch = require('node-fetch');
+                let sent = null;
+                for (let i = 0; i < 3 && !sent; i++) {
+                  try {
+                    const resp = await fetch(site + '/api/desktop/devis-pdf', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+                      body: JSON.stringify({
+                        logosNumero: (data.logosNumero != null ? String(data.logosNumero) : ''),
+                        pdfBase64: attachPdf.base64,
+                        pdfFileName: attachPdf.fileName,
+                        software: 'logosw',
+                      }),
+                    });
+                    sent = await resp.json().catch(() => ({}));
+                  } catch (e) { await new Promise(r => setTimeout(r, 2000)); }
+                }
+                if (!sent) { log('[PEC][bg] Envoi du PDF au serveur échoué (3 essais)'); return; }
+                const etat = sent.attached ? 'attaché au devis PEC (signable)'
+                  : (sent.staged ? 'mis en attente (attaché à la création du devis)' : 'transmis');
+                log('[PEC][bg] Devis imprimé ' + etat + ' + table panier alimentée');
+              } catch (eBg) {
+                log('[PEC][bg] Attache PDF échouée (non bloquant): ' + eBg.message);
+              }
+            })();
+          }
+        } catch (ePec) {
+          log('[PEC] Flux PEC erreur (non bloquant): ' + ePec.message);
+          try { await openPecWizard(data); } catch (e) {}
+          resolve(true);
+        }
       } catch (e) {
         log('[CABFLOW] JSON parse error: ' + e.message);
         log('[CABFLOW] Stdout brut: ' + stdout.substring(0, 200));
