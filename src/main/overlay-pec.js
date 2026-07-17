@@ -31,6 +31,19 @@ let _currentDevisInfo = null;
 let _detectionInflight = false;
 let _attachedParentHwnd = null; // HWND du parent Logos auquel on est attache
 let _suspended = false; // quand true: overlay masque + detection en pause (ex: pendant l'impression auto)
+let _busyUntil = 0;       // ms (Date.now) jusqu'auquel l'overlay reste EPINGLE visible
+                          // pendant un envoi (clic PEC/devis), meme si Logos perd le
+                          // premier plan (Chrome s'ouvre par-dessus). Sinon la
+                          // detection masquerait l'overlay avant qu'on voie la
+                          // confirmation "Envoi en cours / Envoye".
+let _lastHideReason = null; // pour ne logguer un masquage qu'au CHANGEMENT d'etat
+                            // (evite le spam "OVERLAY CACHE" a chaque cycle de poll).
+
+// Duree d'epinglage apres un clic (ms). Couvre l'envoi + les ~5 s d'affichage
+// "Envoye". Ajustable si l'overlay reste trop/pas assez longtemps visible.
+const BUSY_PIN_MS = 30000;
+let _lastBounds = null;  // derniere position calculee (pour afficher vite au meme endroit)
+let _lastPosAt = 0;      // ms du dernier repositionnement (throttle detection PowerShell)
 
 const OVERLAY_WIDTH = 300;
 const OVERLAY_HEIGHT = 32;
@@ -207,15 +220,30 @@ async function positionOverlayAbsolute(logos) {
     }
   } catch (e) {}
   try {
-    _overlayWin.setBounds({ x, y, width: OVERLAY_WIDTH, height: OVERLAY_HEIGHT });
+    _lastBounds = { x, y, width: OVERLAY_WIDTH, height: OVERLAY_HEIGHT };
+    _lastPosAt = Date.now();
+    _overlayWin.setBounds(_lastBounds);
   } catch (e) {}
 }
 
 async function showOverlay(logos) {
   if (!_overlayWin || _overlayWin.isDestroyed()) createOverlay();
   if (!_overlayWin) return;
-  // Repositionner avant d'afficher (ancrage stable sur imprimante + « Éclater »)
+  const wasVisible = _overlayWin.isVisible();
   if (logos && typeof logos.logosLeft === 'number') {
+    // Reactivite : si on a deja une position connue, on AFFICHE tout de suite
+    // dessus, puis on affine en arriere-plan (au lieu d'attendre la detection
+    // PowerShell ~1-2 s avant meme d'apparaitre).
+    if (!wasVisible && _lastBounds) {
+      try { _overlayWin.setBounds(_lastBounds); } catch (e) {}
+      _overlayWin.showInactive();
+      log('Overlay AFFICHE');
+      positionOverlayAbsolute(logos); // async non-bloquant : affine la position
+      return;
+    }
+    // Deja visible : on ne relance la detection PowerShell qu'au plus toutes les
+    // 3 s (evite un spawn a chaque cycle -> moins de CPU, plus fluide).
+    if (wasVisible && (Date.now() - _lastPosAt) < 3000) return;
     await positionOverlayAbsolute(logos);
   }
   if (!_overlayWin.isVisible()) {
@@ -225,6 +253,9 @@ async function showOverlay(logos) {
 }
 
 function hideOverlay() {
+  // Epinglage pendant un envoi : on NE masque PAS (l'ouverture de Chrome fait
+  // perdre le 1er plan a Logos ; sans ca la confirmation disparaitrait aussitot).
+  if (Date.now() < _busyUntil) return;
   if (_overlayWin && _overlayWin.isVisible()) {
     _overlayWin.hide();
     log('Overlay CACHE');
@@ -253,8 +284,8 @@ async function refreshDevisDetection() {
     const r = await detectDevisPage();
 
     if (r.reason === 'logos-not-running') {
-      // Logos n'est pas en avant -> cacher completement
-      log(`Logos = absent | raison=${r.reason}`);
+      // Logos n'est pas en avant -> cacher completement (log seulement au 1er coup)
+      if (_lastHideReason !== r.reason) { log(`Logos = absent | raison=${r.reason}`); _lastHideReason = r.reason; }
       _currentDevisInfo = null;
       hideOverlay();
       return;
@@ -263,6 +294,7 @@ async function refreshDevisDetection() {
     if (r.active && r.devisId && r.patient) {
       // Sur la page Devis UNIQUEMENT : on affiche l'overlay (grisé si devis vide).
       await showOverlay(r);
+      _lastHideReason = null; // reset : le prochain masquage sera logue une fois
       // Page Devis detectee, verifier que le devis a des actes en RAM
       // IMPORTANT: filtrer par nom patient pour eviter de lire un vieux devis cache
       let hasActes = false;
@@ -304,8 +336,13 @@ async function refreshDevisDetection() {
       }
     } else {
       // PAS sur la page Devis -> on MASQUE complètement l'overlay (plus de bouton
-      // grisé qui traîne sur la fiche patient ou ailleurs).
-      log(`Logos foreground mais pas page Devis -> OVERLAY CACHE | raison=${r.reason || 'unknown'}`);
+      // grisé qui traîne sur la fiche patient ou ailleurs). Log uniquement au
+      // changement d'etat (sinon spam a chaque cycle de poll).
+      const reason = r.reason || 'unknown';
+      if (_lastHideReason !== reason) {
+        log(`Logos foreground mais pas page Devis -> OVERLAY CACHE | raison=${reason}`);
+        _lastHideReason = reason;
+      }
       _currentDevisInfo = null;
       hideOverlay();
     }
@@ -425,6 +462,14 @@ function setupIpcHandlers() {
       return { success: false, error: 'no-devis-active' };
     }
     log(`Devis: ${_currentDevisInfo.devisId} | Patient: ${_currentDevisInfo.patient}`);
+
+    // EPINGLE l'overlay visible pendant l'envoi + la confirmation. Sans ca,
+    // l'ouverture de Chrome fait perdre le 1er plan a Logos et la detection
+    // masque l'overlay -> on ne verrait jamais "Envoi en cours / ✓ Envoye".
+    _busyUntil = Date.now() + BUSY_PIN_MS;
+    if (_overlayWin && !_overlayWin.isDestroyed() && !_overlayWin.isVisible()) {
+      try { _overlayWin.showInactive(); } catch (e) {}
+    }
 
     if (_onLancerPec) {
       try {

@@ -35,6 +35,13 @@
       border:2px solid rgba(255,255,255,.45); border-top-color:#fff; box-shadow:none;
       animation:spin .6s linear infinite; }
     @keyframes spin { to { transform:rotate(360deg); } }
+    /* Confirmation "✓ Envoye" (vert, 5 s) puis retour au bouton normal — meme
+       logique visuelle que le bouton questionnaire. */
+    .btn.sent { background:linear-gradient(135deg,#0f766e,#16a34a) !important; opacity:1 !important; }
+    .btn.sent .dot { display:none; }
+    /* Echec (rouge). */
+    .btn.err { background:linear-gradient(135deg,#b91c1c,#ef4444) !important; opacity:1 !important; }
+    .btn.err .dot { display:none; }
   </style>
 </head>
 <body>
@@ -75,24 +82,42 @@
 
     async function fire(intent, btn) {
       if (wrap.classList.contains('disabled') || wrap.classList.contains('loading')) return;
+      // Les DEUX pastilles deviennent non-cliquables pendant tout l'envoi + la
+      // confirmation (evite un double-envoi). L'overlay est aussi epingle cote
+      // connecteur pour ne pas disparaitre quand Chrome s'ouvre.
       wrap.classList.add('loading');
-      // Feedback "Envoi en cours..." sur la pastille cliquee (spinner + libelle).
       const label = btn && btn.querySelector('.lbl');
       const original = label ? label.textContent : '';
+      // 1) "Envoi en cours..." avec spinner sur la pastille cliquee.
       if (btn) btn.classList.add('sending');
       if (label) label.textContent = 'Envoi en cours…';
-      const startedAt = Date.now();
-      try { await window.cabflow.lancerPec(intent); }
-      catch (e) { console.error('overlay error', e); }
-      finally {
-        // On garde le feedback visible au moins 900 ms, meme si l'ouverture est
-        // quasi instantanee, pour que l'utilisateur le voie bien.
-        const wait = Math.max(0, 900 - (Date.now() - startedAt));
-        setTimeout(() => {
-          if (btn) btn.classList.remove('sending');
-          if (label) label.textContent = original;
-          wrap.classList.remove('loading');
-        }, wait);
+
+      const restore = () => {
+        if (btn) btn.classList.remove('sending', 'sent', 'err');
+        if (label) label.textContent = original;
+        wrap.classList.remove('loading');
+      };
+      // Filet de securite : si l'envoi n'aboutit jamais, on redonne la main a 30 s.
+      const safety = setTimeout(restore, 30000);
+
+      let ok = false;
+      try {
+        const res = await window.cabflow.lancerPec(intent);
+        ok = !res || res.success !== false; // succes par defaut si non precise
+      } catch (e) { console.error('overlay error', e); ok = false; }
+
+      clearTimeout(safety);
+      if (btn) btn.classList.remove('sending');
+      // 2) Confirmation : "✓ Envoye" en vert 5 s (ou "Echec" en rouge 3 s). La
+      //    pastille reste non-cliquable pendant l'affichage puis revient normale.
+      if (ok) {
+        if (btn) btn.classList.add('sent');
+        if (label) label.textContent = '✓ Envoyé';
+        setTimeout(restore, 5000);
+      } else {
+        if (btn) btn.classList.add('err');
+        if (label) label.textContent = 'Échec';
+        setTimeout(restore, 3000);
       }
     }
     bPec.addEventListener('click', () => fire('pec', bPec));

@@ -57,6 +57,7 @@ public class FD {
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint p);
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll", CharSet=CharSet.Auto)] public static extern IntPtr SendMessage(IntPtr h, int msg, IntPtr w, StringBuilder l);
   public delegate bool EnumProc(IntPtr h, IntPtr l);
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
 }
@@ -91,7 +92,7 @@ $cbTop = [FD+EnumProc]{ param($h,$l)
 # 2) Fenetre FICHE = celle qui contient un bouton "Aide" + >=2 marqueurs Etat civil.
 #    (La fiche est une fenetre distincte, titre "Fiche d'etat civil".)
 $markerRx = "Enregistrer|Lire la carte|Droits en ligne|Espace Sant|carte Vitale"
-$ficheId = $null; $aide = $null
+$ficheId = $null; $ficheHwnd = $null; $aide = $null
 foreach ($w in $script:wins) {
   $script:mk = 0; $script:ad = $null
   $cbc = [FD+EnumProc]{ param($h,$l)
@@ -110,14 +111,74 @@ foreach ($w in $script:wins) {
     return $true
   }
   [FD]::EnumChildWindows($w.HWnd,$cbc,[IntPtr]::Zero) | Out-Null
-  if ($script:ad -and $script:mk -ge 2) { $ficheId = $w.Id; $aide = $script:ad; break }
+  if ($script:ad -and $script:mk -ge 2) { $ficheId = $w.Id; $ficheHwnd = $w.HWnd; $aide = $script:ad; break }
 }
 if (-not $aide) { Write-Output '{"active":false,"reason":"not-etat-civil"}'; exit 0 }
 
-# 3) Identite patient : fenetre dont le titre = "<num> - <NOM Prenom>".
-$numero = $null; $name = $null
-foreach ($w in $script:wins) {
-  if ($w.Title -match '^(\d+)\s*[-–]\s*(.+)$') { $numero = $matches[1]; $name = $matches[2].Trim(); break }
+# 3) Lire les CHAMPS de la fiche affichée (contrôles Edit, via WM_GETTEXT). Ces
+#    valeurs sont liées au patient RÉELLEMENT à l'écran -> pas d'ambiguïté même
+#    si plusieurs dossiers sont ouverts, et DDN fiable (pas de scan RAM).
+$edits = New-Object System.Collections.ArrayList
+$cbe = [FD+EnumProc]{ param($h,$l)
+  if ([FD]::IsWindowVisible($h)) {
+    $cls=New-Object System.Text.StringBuilder(48); [FD]::GetClassName($h,$cls,48) | Out-Null
+    if ($cls.ToString() -match 'Edit') {
+      $sb=New-Object System.Text.StringBuilder(256)
+      [FD]::SendMessage($h, 0x000D, [IntPtr]255, $sb) | Out-Null
+      $t=$sb.ToString().Trim()
+      if ($t.Length -gt 0) {
+        $r=New-Object FD+RECT; [FD]::GetWindowRect($h,[ref]$r) | Out-Null
+        [void]$script:edits.Add([PSCustomObject]@{ T=$t; L=$r.Left; Top=$r.Top })
+      }
+    }
+  }
+  return $true
+}
+[FD]::EnumChildWindows($ficheHwnd,$cbe,[IntPtr]::Zero) | Out-Null
+
+# NUMERO de dossier = champ "chiffres purs" le plus à DROITE dans la zone haute
+# (le "Patient 401" est en haut-droite ; évite le code postal, plus bas/à gauche).
+$numero = $null; $numL = -999999
+foreach ($e in $script:edits) {
+  if ($e.T -match '^\d{1,6}$' -and $e.Top -lt 450 -and $e.L -gt $numL) { $numL = $e.L; $numero = $e.T }
+}
+
+# NIR -> année + mois de naissance (pour recouper la DDN).
+$nyy = $null; $nmm = $null
+foreach ($e in $script:edits) {
+  if ($e.T -match '^\s*[12][\s]?(\d{2})[\s]?(\d{2})[\s]?\d{2}') { $nyy = $matches[1]; $nmm = $matches[2]; break }
+}
+
+# DDN = champ date JJ/MM/AAAA. Priorité à celle qui recoupe le NIR (mois+année),
+# sinon la date la plus HAUTE avec une année de naissance plausible (< année courante).
+$dob = $null
+$dates = New-Object System.Collections.ArrayList
+foreach ($e in $script:edits) { if ($e.T -match '^(\d{2})/(\d{2})/(\d{4})$') { [void]$script:dates.Add($e) } }
+if ($nmm -and $nyy) {
+  foreach ($e in $script:dates) {
+    if ($e.T -match ('^\d{2}/' + [regex]::Escape($nmm) + '/(?:19|20)' + [regex]::Escape($nyy) + '$')) { $dob = $e.T; break }
+  }
+}
+if (-not $dob) {
+  $curY = (Get-Date).Year; $minTop = 999999
+  foreach ($e in $script:dates) {
+    $y = [int]($e.T.Substring(6,4))
+    if ($y -ge 1900 -and $y -lt $curY -and $e.Top -lt $minTop) { $minTop = $e.Top; $dob = $e.T }
+  }
+}
+
+# NOM/PRENOM : fenetre patient dont le titre commence par CE numero (lié à la
+# fiche active). Repli : 1re fenetre "<num> - <nom>" si numero non lu.
+$name = $null
+if ($numero) {
+  foreach ($w in $script:wins) {
+    if ($w.Title -match ('^' + [regex]::Escape($numero) + '\s*[-–]\s*(.+)$')) { $name = $matches[1].Trim(); break }
+  }
+}
+if (-not $name) {
+  foreach ($w in $script:wins) {
+    if ($w.Title -match '^(\d+)\s*[-–]\s*(.+)$') { if (-not $numero) { $numero = $matches[1] }; $name = $matches[2].Trim(); break }
+  }
 }
 
 $obj = @{
@@ -125,6 +186,7 @@ $obj = @{
   focused = ($fgId -eq $ficheId)
   numero = $numero
   name = $name
+  dob = $dob
   aideLeft = $aide.L; aideTop = $aide.T; aideRight = $aide.R; aideBottom = $aide.B
 } | ConvertTo-Json -Compress
 Write-Output $obj
@@ -224,7 +286,7 @@ async function refresh() {
       return;
     }
     const { nom, prenom } = splitName(r.name);
-    _currentFiche = { nom, prenom, numero: r.numero, patientHwnd: r.patientHwnd };
+    _currentFiche = { nom, prenom, numero: r.numero, dob: r.dob || null };
     showOverlay(r);
     if (_win && !_win.isDestroyed()) {
       try { _win.webContents.send('fiche-info', { patient: (prenom ? prenom + ' ' : '') + nom }); } catch (e) {}
