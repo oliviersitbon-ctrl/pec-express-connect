@@ -101,16 +101,13 @@ $cb = [LD+EnumProc]{ param($h, $l)
 [LD]::EnumWindows($cb, [IntPtr]::Zero) | Out-Null
 
 # 2. Identifier la 1ere fenetre B "devis active"
-#    Critere: title vide + contient >=3 marqueurs devis (Imprimer, Eclater le
-#    devis, etc.). INDEPENDANT DE LA RESOLUTION : on ne filtre plus sur une
-#    taille codee en dur (1914x871) — un seuil minimal suffit, ce sont les
-#    marqueurs (boutons reels de l'ecran devis) qui font foi. Ainsi la detection
-#    fonctionne sur tout ecran / toute mise a l'echelle Windows.
+#    Critere: title vide, taille proche 1914x871, contient >=3 marqueurs devis
 $markersRegex = "Imprimer|Devis isol.|Eclater le devis|Devis types|Assistant devis"
 $devisB = $null
 foreach ($w in $wins) {
     if ($w.Title.Length -gt 0) { continue }
-    if ($w.W -lt 900 -or $w.H -lt 500) { continue }  # simple garde anti mini-fenetre
+    if ($w.W -lt 1800 -or $w.W -gt 1950) { continue }
+    if ($w.H -lt 800 -or $w.H -gt 900) { continue }
     $markersFound = @()
     $cbB = [LD+EnumProc]{ param($h, $l)
         if ([LD]::IsWindowVisible($h)) {
@@ -190,30 +187,13 @@ if (-not $patientA) {
     exit 0
 }
 
-# Precision : la fenetre devis (B) est-elle celle qui a le FOCUS ?
-# Sur l'ecran Devis, la fenetre active est B (l'editeur de devis). Sur l'ecran
-# schema/actes/fiche, le contenu est affiche par la fenetre patient (A) -> B
-# n'est PAS au premier plan (elle peut meme rester ouverte en arriere-plan).
-# On exige donc fg == B (et non A) pour n'afficher l'overlay QUE lorsqu'on edite
-# reellement le devis. GetForegroundWindow renvoie le top-level -> compare a B.
-$fgId = $fg.ToInt64()
-$devisFocused = ($fgId -eq $devisB.HWnd)
-
-# Localiser DANS la fenetre devis (coords ECRAN, une seule passe) :
-#  - le bouton "Imprimer" (reference historique)
-#  - le bouton "Eclater le devis" = rangee "Ajouter/Creer alternative/Eclater/
-#    Voir les a faire". C'est SOUS la ligne de cette rangee que l'overlay doit
-#    se placer. On prend son bas comme ancre -> robuste a la resolution.
-# Le TRAIT sous lequel poser l'overlay = bord inferieur de la barre d'outils
-# "Ajouter alternative / Creer alternative / Eclater le devis / Voir les a faire".
-# On prend le BAS LE PLUS BAS de ces boutons (toute la rangee) -> repere fiable
-# du trait, robuste a la resolution/echelle et a un bouton masque/renomme.
-# NB: on cible ces libelles precis pour NE PAS attraper le menu "Alternatives."
-# de la zone des actes, situe bien plus bas.
-$printer = $null
-$rowBottomMax = $null
-$rowRegex = "Ajouter alternative|Eclater le devis|Voir les"
-$cbP = [LD+EnumProc]{ param($h, $l)
+# Position du BAS du bouton "Eclater le devis" (pour ancrer l'overlay SOUS la
+# ligne de cette rangee) et du bord droit d'"Imprimer" (repli X). On enumere les
+# boutons de la fenetre devis B et on releve leurs rects ecran.
+$script:eclaterBottom = $null
+$script:imprimerBottom = $null
+$script:imprimerRight = $null
+$cbRect = [LD+EnumProc]{ param($h, $l)
     if ([LD]::IsWindowVisible($h)) {
         $cls = New-Object System.Text.StringBuilder(64)
         [LD]::GetClassName($h, $cls, 64) | Out-Null
@@ -221,23 +201,19 @@ $cbP = [LD+EnumProc]{ param($h, $l)
             $sb = New-Object System.Text.StringBuilder(128)
             [LD]::GetWindowText($h, $sb, 128) | Out-Null
             $t = $sb.ToString()
-            if (-not $script:printer -and $t -match "Imprimer") {
-                $pr = New-Object LD+RECT
-                [LD]::GetWindowRect($h, [ref]$pr) | Out-Null
-                $script:printer = [PSCustomObject]@{ L = $pr.Left; T = $pr.Top; R = $pr.Right; B = $pr.Bottom }
+            if ($t -match "clater le devis" -and -not $script:eclaterBottom) {
+                $r = New-Object LD+RECT; [LD]::GetWindowRect($h, [ref]$r) | Out-Null
+                $script:eclaterBottom = $r.Bottom
             }
-            if ($t -match $rowRegex) {
-                $rr = New-Object LD+RECT
-                [LD]::GetWindowRect($h, [ref]$rr) | Out-Null
-                if (($null -eq $script:rowBottomMax) -or ($rr.Bottom -gt $script:rowBottomMax)) {
-                    $script:rowBottomMax = $rr.Bottom
-                }
+            if ($t -match "Imprimer" -and -not $script:imprimerRight) {
+                $r = New-Object LD+RECT; [LD]::GetWindowRect($h, [ref]$r) | Out-Null
+                $script:imprimerRight = $r.Right; $script:imprimerBottom = $r.Bottom
             }
         }
     }
     return $true
 }
-[LD]::EnumChildWindows([IntPtr]$devisB.HWnd, $cbP, [IntPtr]::Zero) | Out-Null
+[LD]::EnumChildWindows([IntPtr]$devisB.HWnd, $cbRect, [IntPtr]::Zero) | Out-Null
 
 # Recuperer aussi la position de la fenetre patient A (= fenetre Logos visible)
 # pour pouvoir positionner le bouton overlay relatif a Logos
@@ -248,20 +224,13 @@ $result = @{
     devisId = $patientA.DevisId
     patient = $patientA.PatientName
     markers = $devisB.MarkersFound
-    foregroundHwnd = $fgId
-    devisFocused = $devisFocused
-    printerLeft = if ($printer) { $printer.L } else { $null }
-    printerTop = if ($printer) { $printer.T } else { $null }
-    printerRight = if ($printer) { $printer.R } else { $null }
-    printerBottom = if ($printer) { $printer.B } else { $null }
-    rowLeft = if ($rowBtn) { $rowBtn.L } else { $null }
-    rowTop = if ($rowBtn) { $rowBtn.T } else { $null }
-    rowRight = if ($rowBtn) { $rowBtn.R } else { $null }
-    rowBottom = if ($rowBtn) { $rowBtn.B } else { $null }
     logosLeft = $patientA.Left
     logosTop = $patientA.Top
     logosWidth = $patientA.W
     logosHeight = $patientA.H
+    rowBottom = $script:eclaterBottom
+    printerBottom = $script:imprimerBottom
+    printerRight = $script:imprimerRight
 } | ConvertTo-Json -Compress
 Write-Output $result
 `;

@@ -33,6 +33,7 @@ let _detectionInflight = false;
 let _suspended = false;
 let _currentFiche = null;   // { nom, prenom, numero, patientHwnd }
 let _onSend = null;         // callback index.js
+let _lastMaskLog = null;    // anti-spam : on ne loggue "Masque" qu'au changement d'etat
 
 const OVERLAY_WIDTH = 170;
 const OVERLAY_HEIGHT = 30;
@@ -279,12 +280,14 @@ async function refresh() {
   try {
     const r = await detectFichePage();
     if (!r || !r.active || r.focused === false) {
-      if (r && r.active && r.focused === false) log('Masque : fiche pas au premier plan');
-      else if (r && r.reason && r.reason !== 'busy') log('Masque | raison=' + r.reason);
+      // Log UNIQUEMENT au changement d'etat (sinon "Masque" spamme chaque poll).
+      const motif = (r && r.active && r.focused === false) ? 'fiche pas au premier plan' : ((r && r.reason) || 'unknown');
+      if (motif !== 'busy' && _lastMaskLog !== motif) { log('Masque | raison=' + motif); _lastMaskLog = motif; }
       _currentFiche = null;
       hideOverlay();
       return;
     }
+    _lastMaskLog = null; // reset : le prochain masquage sera logue une fois
     const { nom, prenom } = splitName(r.name);
     _currentFiche = { nom, prenom, numero: r.numero, dob: r.dob || null };
     showOverlay(r);

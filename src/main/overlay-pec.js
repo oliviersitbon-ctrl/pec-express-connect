@@ -32,9 +32,19 @@ let _detectionInflight = false;
 let _attachedParentHwnd = null; // HWND du parent Logos auquel on est attache
 let _suspended = false; // quand true: overlay masque + detection en pause (ex: pendant l'impression auto)
 let _pollTimer = null; // revérification periodique (filet de securite du hook foreground)
+let _busyUntil = 0;    // ms (Date.now) jusqu'auquel l'overlay reste EPINGLE visible
+                       // pendant un envoi (l'ouverture de Chrome fait perdre le 1er
+                       // plan a Logos ; sans ca la confirmation disparaitrait).
+let _lastHideReason = null; // anti-spam : on ne loggue un masquage qu'au changement d'etat
+let _hotRect = null;   // zone cliquable des pastilles (px CSS relatifs a la fenetre),
+                       // rapportee par le renderer -> pre-arme la capture souris.
+let _cursorTimer = null;
+let _capturing = false;
 
 const OVERLAY_WIDTH = 300;
 const OVERLAY_HEIGHT = 32;
+// Duree d'epinglage apres un clic (ms) : couvre l'envoi + les ~5 s "Envoye".
+const BUSY_PIN_MS = 30000;
 // Le hook foreground ne se declenche PAS quand on change de page A L'INTERIEUR
 // de Logos (la fenetre top-level ne change pas). On re-verifie donc l'etat a
 // intervalle regulier pour masquer l'overlay des qu'on quitte la page Devis
@@ -91,7 +101,9 @@ function createOverlay() {
 // alternative / Eclater le devis / Voir les a faire". Le bas du bouton "Eclater
 // le devis" coincide avec ce trait -> 0 = bord SUPERIEUR de l'overlay pile sur
 // la ligne (colle dessous). Ajustable si besoin (valeur positive = plus bas).
-const ROW_GAP_BELOW = 0;
+const ROW_GAP_BELOW = 12; // marge SOUS le bas du bouton « Éclater le devis » :
+                          // place les pastilles PLUS BAS que la petite ligne de
+                          // séparation de cette rangée (règle demandée par Fiona).
 const PRINTER_GAP_BELOW = 12; // repli : sous l'imprimante
 const RIGHT_MARGIN = 8;       // marge par rapport au bord droit de la fenetre
 
@@ -154,6 +166,9 @@ function showOverlay(logos) {
 }
 
 function hideOverlay() {
+  // Epinglage pendant un envoi : on NE masque PAS (Chrome passe devant Logos et
+  // masquerait sinon la confirmation "Envoi en cours / ✓ Envoye").
+  if (Date.now() < _busyUntil) return;
   if (_overlayWin && _overlayWin.isVisible()) {
     _overlayWin.hide();
     log('Overlay CACHE');
@@ -190,10 +205,16 @@ async function refreshDevisDetection() {
     //   - busy/timeout/parse-error/... : etat transitoire -> on masque par securite
     // => plus de "boutons gris" fantomes hors page devis ou Logos ferme.
     if (!r || !r.active || r.devisFocused === false) {
-      if (r && r.active && r.devisFocused === false) {
-        log('Overlay masque : fenetre Devis ouverte mais pas au premier plan (focus ailleurs)');
-      } else if (r && r.reason && r.reason !== 'busy') {
-        log(`Overlay masque (pas page Devis) | raison=${r.reason}`);
+      // Log UNIQUEMENT au changement d'etat (sinon "Overlay masque" spamme a
+      // chaque cycle de poll, toutes les 1,5 s).
+      const motif = (r && r.active && r.devisFocused === false)
+        ? 'focus-ailleurs'
+        : ((r && r.reason) || 'unknown');
+      if (motif !== 'busy' && _lastHideReason !== motif) {
+        log(motif === 'focus-ailleurs'
+          ? 'Overlay masque : fenetre Devis ouverte mais pas au premier plan (focus ailleurs)'
+          : `Overlay masque (pas page Devis) | raison=${motif}`);
+        _lastHideReason = motif;
       }
       _currentDevisInfo = null;
       hideOverlay();
@@ -201,6 +222,7 @@ async function refreshDevisDetection() {
     }
 
     // On est bien sur la page Devis ET elle est au premier plan -> afficher.
+    _lastHideReason = null; // reset : le prochain masquage sera logue une fois
     showOverlay(r);
 
     if (r.devisId && r.patient) {
@@ -367,6 +389,37 @@ function stopPoll() {
 }
 
 /**
+ * Poll du curseur : quand il survole la zone des pastilles (_hotRect, rapportee
+ * par le renderer), on ACTIVE la capture souris (setIgnoreMouseEvents(false))
+ * AVANT tout clic -> le 1er clic est pris en compte. Sinon la fenetre reste
+ * traversante et les icones Logos dessous restent cliquables.
+ */
+function startCursorPoll() {
+  if (_cursorTimer) return;
+  _cursorTimer = setInterval(() => {
+    try {
+      if (!_overlayWin || _overlayWin.isDestroyed() || !_overlayWin.isVisible() || !_hotRect) {
+        if (_capturing) { _capturing = false; try { _overlayWin && _overlayWin.setIgnoreMouseEvents(true, { forward: true }); } catch (e) {} }
+        return;
+      }
+      const b = _overlayWin.getBounds();
+      const p = screen.getCursorScreenPoint();
+      const left = b.x + _hotRect.x, top = b.y + _hotRect.y;
+      const inside = p.x >= left && p.x <= left + _hotRect.w && p.y >= top && p.y <= top + _hotRect.h;
+      if (inside !== _capturing) {
+        _capturing = inside;
+        _overlayWin.setIgnoreMouseEvents(!inside, { forward: true });
+      }
+    } catch (e) {}
+  }, 90);
+}
+
+function stopCursorPoll() {
+  if (_cursorTimer) { clearInterval(_cursorTimer); _cursorTimer = null; }
+  _capturing = false;
+}
+
+/**
  * Handler IPC: appele quand l'utilisateur clique sur "Lancer la PEC"
  */
 function setupIpcHandlers() {
@@ -379,6 +432,13 @@ function setupIpcHandlers() {
     }
   });
 
+  // Le renderer rapporte la zone cliquable des pastilles (px CSS relatifs a la
+  // fenetre). Un poll du curseur (startCursorPoll) pre-arme la capture souris
+  // AVANT le clic -> plus de "1er clic ignore", sans zone de drag.
+  ipcMain.on('overlay-set-hot-rect', (event, rect) => {
+    _hotRect = rect && typeof rect.w === 'number' ? rect : null;
+  });
+
   ipcMain.handle('overlay-lancer-pec', async (event, intent) => {
     log('=== CLIC LANCER LA PEC ===');
     if (!_currentDevisInfo) {
@@ -386,6 +446,13 @@ function setupIpcHandlers() {
       return { success: false, error: 'no-devis-active' };
     }
     log(`Devis: ${_currentDevisInfo.devisId} | Patient: ${_currentDevisInfo.patient}`);
+
+    // EPINGLE l'overlay visible pendant l'envoi + la confirmation (Chrome passe
+    // devant Logos, la detection le masquerait sinon).
+    _busyUntil = Date.now() + BUSY_PIN_MS;
+    if (_overlayWin && !_overlayWin.isDestroyed() && !_overlayWin.isVisible()) {
+      try { _overlayWin.showInactive(); } catch (e) {}
+    }
 
     if (_onLancerPec) {
       try {
@@ -432,6 +499,7 @@ function startOverlay(onLancerPec) {
   setupIpcHandlers();
   startWatcher();
   startPoll();
+  startCursorPoll();
 }
 
 /**
@@ -440,6 +508,7 @@ function startOverlay(onLancerPec) {
 function stopOverlay() {
   stopWatcher();
   stopPoll();
+  stopCursorPoll();
   if (_overlayWin && !_overlayWin.isDestroyed()) {
     _overlayWin.destroy();
     _overlayWin = null;
