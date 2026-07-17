@@ -79,19 +79,16 @@ async function returnToLogos(site, item) {
   }
   const ref = safeRef(item.devisRef || item.token.slice(0, 8));
   const prat = item.praticien || 'OS';
-  // Montant total du devis, ajoute entre parentheses dans le libelle Logos.
-  // On garde de l'ASCII (« EUR », point decimal) pour ne pas casser le champ
-  // EXTRA de Logos comme le faisaient les accents.
-  const totalTxt = (item.total != null && !isNaN(Number(item.total)))
-    ? ` (${Number(item.total).toFixed(2)} EUR)`
-    : '';
+  // NB : on n'ajoute PLUS le montant du devis au libellé des documents réécrits
+  // dans Logos (devis / consentement / accord PEC). Il n'a pas de sens sur le
+  // consentement ni l'accord (documents non facturés) et prêtait à confusion.
 
   // 1) Devis signé — seulement s'il existe un PDF signé (une PEC peut n'avoir
   // que ses documents OCAM à renvoyer, sans devis PDF source).
   if (item.hasSignedDevis) {
     const devisBuf = await downloadPdf(site, item.token, 'pdf');
     const rDevis = await logosWriter.writeSignedDoc(
-      numero, devisBuf, `Devis-signe-${ref}.pdf`, 'Devis signe' + totalTxt, prat
+      numero, devisBuf, `Devis-signe-${ref}.pdf`, 'Devis signe', prat
     );
     if (!rDevis.ok) throw new Error(`écriture devis Logos KO: ${rDevis.result}`);
     log(`Devis signé écrit dans dossier ${numero} (cle=${rDevis.cle})`);
@@ -103,7 +100,7 @@ async function returnToLogos(site, item) {
   if (item.hasConsent) {
     const consBuf = await downloadPdf(site, item.token, 'consent-pdf');
     const rCons = await logosWriter.writeSignedDoc(
-      numero, consBuf, `Consentement-signe-${ref}.pdf`, 'Consentement signe' + totalTxt, prat
+      numero, consBuf, `Consentement-signe-${ref}.pdf`, 'Consentement signe', prat
     );
     if (!rCons.ok) throw new Error(`écriture consentement Logos KO: ${rCons.result}`);
     log(`Consentement écrit dans dossier ${numero} (cle=${rCons.cle})`);
@@ -120,7 +117,7 @@ async function returnToLogos(site, item) {
     const asciiLabel = String(od.label || 'Document PEC signe')
       .normalize('NFD').replace(/[̀-ͯ]/g, '');
     const rOcam = await logosWriter.writeSignedDoc(
-      numero, buf, `PEC-doc-signe-${ref}-${i + 1}.pdf`, asciiLabel + totalTxt, prat
+      numero, buf, `PEC-doc-signe-${ref}-${i + 1}.pdf`, asciiLabel, prat
     );
     if (!rOcam.ok) throw new Error(`écriture document OCAM Logos KO: ${rOcam.result}`);
     log(`Document OCAM « ${asciiLabel} » écrit dans dossier ${numero} (cle=${rOcam.cle})`);
