@@ -31,52 +31,19 @@ let _currentDevisInfo = null;
 let _detectionInflight = false;
 let _attachedParentHwnd = null; // HWND du parent Logos auquel on est attache
 let _suspended = false; // quand true: overlay masque + detection en pause (ex: pendant l'impression auto)
-let _busyUntil = 0;       // ms (Date.now) jusqu'auquel l'overlay reste EPINGLE visible
-                          // pendant un envoi (clic PEC/devis), meme si Logos perd le
-                          // premier plan (Chrome s'ouvre par-dessus). Sinon la
-                          // detection masquerait l'overlay avant qu'on voie la
-                          // confirmation "Envoi en cours / Envoye".
-let _lastHideReason = null; // pour ne logguer un masquage qu'au CHANGEMENT d'etat
-                            // (evite le spam "OVERLAY CACHE" a chaque cycle de poll).
 
-// Duree d'epinglage apres un clic (ms). Couvre l'envoi + les ~5 s d'affichage
-// "Envoye". Ajustable si l'overlay reste trop/pas assez longtemps visible.
-const BUSY_PIN_MS = 30000;
-let _lastBounds = null;  // derniere position calculee (pour afficher vite au meme endroit)
-let _lastPosAt = 0;      // ms du dernier repositionnement (throttle detection PowerShell)
+// --- Capture souris pre-armee (fin du "1er clic ignore, 2e clic OK") ---
+// La fenetre est traversante (setIgnoreMouseEvents(true)) et ne redevenait
+// capturante que sur mouseenter cote renderer (aller-retour IPC). Windows decide
+// du click-through AU moment du mousedown : le 1er clic partait donc a travers
+// vers Logos, seul le 2e etait pris. Solution : le main process surveille la
+// position du curseur et bascule la capture AVANT le clic.
+let _hotRect = null;          // { x, y, w, h } px CSS relatifs a la fenetre (union des boutons visibles)
+let _cursorPollTimer = null;  // interval de surveillance du curseur
+let _lastIgnore = null;       // dernier etat applique (evite les appels redondants)
 
 const OVERLAY_WIDTH = 300;
 const OVERLAY_HEIGHT = 32;
-
-// ╔══════════════════════════════════════════════════════════════════════════╗
-// ║  RÈGLE DE POSITIONNEMENT DES 2 PASTILLES FLOTTANTES — VERROUILLÉE (Fiona) ║
-// ║  ⛔ NE PAS MODIFIER, NE PAS RÉ-ANCRER AILLEURS SANS ACCORD DE FIONA. ⛔     ║
-// ╠══════════════════════════════════════════════════════════════════════════╣
-// ║  ORDONNÉE (Y) — RÈGLE PRINCIPALE :                                        ║
-// ║    Les boutons doivent être PLUS BAS que la petite ligne située SOUS le   ║
-// ║    bouton « Éclater le devis ». On ancre donc TOUJOURS sur le BAS (Bottom)║
-// ║    du bouton « Éclater le devis » détecté dans Logos, + une marge fixe    ║
-// ║    descendante (BTN_ANCHOR.Y_BELOW_ECLATER).                              ║
-// ║    ❌ NE JAMAIS ancrer sur le haut de la fenêtre Logos (logos.logosTop) : ║
-// ║       cette valeur est INSTABLE et fait REMONTER les boutons. C'est       ║
-// ║       l'erreur commise par d'autres sessions — ne pas la refaire.         ║
-// ║                                                                            ║
-// ║  ABSCISSE (X) :                                                           ║
-// ║    Le BORD DROIT du bouton de droite doit être un PEU à GAUCHE du bouton  ║
-// ║    « Imprimer » de Logos. On ancre sur le bord droit (Right) d'« Imprimer»║
-// ║    moins la largeur de l'overlay moins un petit gap                       ║
-// ║    (BTN_ANCHOR.X_GAP_LEFT_OF_IMPRIMER).                                   ║
-// ║                                                                            ║
-// ║  Si les boutons apparaissent trop HAUT ou trop BAS, on n'agit QUE sur les ║
-// ║  deux valeurs ci-dessous. On ne change PAS la logique d'ancrage.          ║
-// ╚══════════════════════════════════════════════════════════════════════════╝
-const BTN_ANCHOR = Object.freeze({
-  // Marge (px) sous le BAS du bouton « Éclater le devis ». Doit rester > 0 pour
-  // passer SOUS la petite ligne de séparation. Augmenter pour descendre.
-  Y_BELOW_ECLATER: 12,
-  // Écart (px) entre le bord droit des pastilles et le bord droit d'« Imprimer ».
-  X_GAP_LEFT_OF_IMPRIMER: 8,
-});
 
 /**
  * Cree la fenetre overlay (cachee au demarrage).
@@ -124,127 +91,31 @@ function createOverlay() {
  * les coordonnees actuelles de Logos. Pas de SetParent (qui casse le rendu
  * Electron transparent), mais re-positionnement frequent via WinEvent.
  */
-// Repère, en coordonnées ÉCRAN, le bouton « Imprimer » (pour l'axe X) et
-// « Éclater le devis » (pour l'axe Y) dans la fenêtre devis Logos au premier
-// plan. Ancrage STABLE (indépendant du haut de fenêtre, qui varie selon l'état).
-const PS_FIND_ANCHORS = String.raw`
-Add-Type @"
-using System;
-using System.Text;
-using System.Runtime.InteropServices;
-public class OA {
-  [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc cb, IntPtr l);
-  [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr p, EnumProc cb, IntPtr l);
-  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
-  [DllImport("user32.dll", CharSet=CharSet.Auto)] public static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
-  [DllImport("user32.dll", CharSet=CharSet.Auto)] public static extern int GetClassName(IntPtr h, StringBuilder s, int n);
-  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint p);
-  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
-  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
-  public delegate bool EnumProc(IntPtr h, IntPtr l);
-  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
-}
-"@ -ErrorAction SilentlyContinue
-$proc = Get-Process -Name "LOGOS_w" -ErrorAction SilentlyContinue
-if (-not $proc) { Write-Output '{"ok":false}'; exit 0 }
-$logosPid = $proc.Id
-$fg = [OA]::GetForegroundWindow(); $fgPid = 0
-[OA]::GetWindowThreadProcessId($fg, [ref]$fgPid) | Out-Null
-if ($fgPid -ne $logosPid) { Write-Output '{"ok":false}'; exit 0 }
-$script:pr = $null; $script:ec = $null
-$cbChild = [OA+EnumProc]{ param($h,$l)
-  $cls = New-Object System.Text.StringBuilder(64); [OA]::GetClassName($h,$cls,64) | Out-Null
-  if ($cls.ToString() -match "Button") {
-    $sb = New-Object System.Text.StringBuilder(128); [OA]::GetWindowText($h,$sb,128) | Out-Null
-    $t = $sb.ToString()
-    if ($t -match "Imprimer" -and -not $script:pr) { $r=New-Object OA+RECT; [OA]::GetWindowRect($h,[ref]$r)|Out-Null; $script:pr=$r }
-    if ($t -match "clater le devis" -and -not $script:ec) { $r=New-Object OA+RECT; [OA]::GetWindowRect($h,[ref]$r)|Out-Null; $script:ec=$r }
-  }
-  return $true
-}
-$cbTop = [OA+EnumProc]{ param($h,$l)
-  if ([OA]::IsWindowVisible($h)) {
-    $pp=0; [OA]::GetWindowThreadProcessId($h,[ref]$pp)|Out-Null
-    if ($pp -eq $logosPid) { [OA]::EnumChildWindows($h,$cbChild,[IntPtr]::Zero)|Out-Null }
-  }
-  return $true
-}
-[OA]::EnumWindows($cbTop,[IntPtr]::Zero) | Out-Null
-$o = @{ ok = $true }
-if ($script:pr) { $o.pLeft=$script:pr.Left; $o.pRight=$script:pr.Right }
-if ($script:ec) { $o.eBottom=$script:ec.Bottom; $o.eTop=$script:ec.Top }
-Write-Output (ConvertTo-Json $o -Compress)
-`;
-
-function findDevisToolbarAnchors() {
-  return new Promise((resolve) => {
-    const { spawn } = require('child_process');
-    const proc = spawn('powershell.exe', [
-      '-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden',
-      '-ExecutionPolicy', 'Bypass', '-Command', PS_FIND_ANCHORS,
-    ], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
-    let out = '';
-    proc.stdout.on('data', (d) => (out += d.toString('utf8')));
-    const to = setTimeout(() => { try { proc.kill(); } catch (e) {} resolve(null); }, 2500);
-    proc.on('close', () => {
-      clearTimeout(to);
-      try {
-        const line = out.trim().split('\n').filter((l) => l.trim().startsWith('{')).pop();
-        resolve(line ? JSON.parse(line) : null);
-      } catch (e) { resolve(null); }
-    });
-    proc.on('error', () => { clearTimeout(to); resolve(null); });
-  });
-}
-
-async function positionOverlayAbsolute(logos) {
+function positionOverlayAbsolute(logos) {
   if (!_overlayWin || _overlayWin.isDestroyed()) return;
   if (!logos || typeof logos.logosLeft !== 'number') return;
-  // ⚠️ Fallback UNIQUEMENT si la détection PowerShell des boutons échoue.
-  //    Ce n'est PAS l'emplacement voulu (il ancre sur le haut de fenêtre) : il
-  //    ne sert qu'à éviter des boutons hors écran le temps qu'un ancrage réussi
-  //    reprenne la main au prochain cycle. L'emplacement CORRECT est calculé
-  //    plus bas à partir de eBottom (bas du bouton « Éclater le devis »).
-  let x = logos.logosLeft + logos.logosWidth - OVERLAY_WIDTH - 6;
-  let y = logos.logosTop + 44;
+  const x = logos.logosLeft + logos.logosWidth - OVERLAY_WIDTH - 6;
+  // Ancre verticale : JUSTE SOUS la rangee "Ajouter alternative / Eclater le
+  // devis / Voir les a faire" (repere fiable de l'ecran devis) quand le
+  // detecteur la fournit ; sinon repli sur le haut de la fenetre (+44). Evite que
+  // les pastilles se posent sur la barre d'icones du haut de Logos.
+  let y;
+  if (typeof logos.rowBottom === 'number' && logos.rowBottom > logos.logosTop) {
+    y = logos.rowBottom + 2;
+  } else {
+    y = logos.logosTop + 44;
+  }
   try {
-    const a = await findDevisToolbarAnchors();
-    if (a && a.ok) {
-      // ── RÈGLE VERROUILLÉE (voir bloc BTN_ANCHOR en haut du fichier) ──────────
-      // X : bord droit des pastilles un PEU à GAUCHE du bouton « Imprimer ».
-      if (typeof a.pRight === 'number') x = Math.round(a.pRight) - OVERLAY_WIDTH - BTN_ANCHOR.X_GAP_LEFT_OF_IMPRIMER;
-      // Y : PLUS BAS que la ligne sous « Éclater le devis » => ancrage sur le
-      //     BAS (eBottom) du bouton « Éclater le devis » + marge descendante.
-      //     ❌ NE JAMAIS remplacer par logos.logosTop (fait remonter les boutons).
-      if (typeof a.eBottom === 'number') y = Math.round(a.eBottom) + BTN_ANCHOR.Y_BELOW_ECLATER;
-    }
-  } catch (e) {}
-  try {
-    _lastBounds = { x, y, width: OVERLAY_WIDTH, height: OVERLAY_HEIGHT };
-    _lastPosAt = Date.now();
-    _overlayWin.setBounds(_lastBounds);
+    _overlayWin.setBounds({ x, y, width: OVERLAY_WIDTH, height: OVERLAY_HEIGHT });
   } catch (e) {}
 }
 
-async function showOverlay(logos) {
+function showOverlay(logos) {
   if (!_overlayWin || _overlayWin.isDestroyed()) createOverlay();
   if (!_overlayWin) return;
-  const wasVisible = _overlayWin.isVisible();
+  // Repositionner avant d'afficher (coords absolues ecran calculees depuis Logos)
   if (logos && typeof logos.logosLeft === 'number') {
-    // Reactivite : si on a deja une position connue, on AFFICHE tout de suite
-    // dessus, puis on affine en arriere-plan (au lieu d'attendre la detection
-    // PowerShell ~1-2 s avant meme d'apparaitre).
-    if (!wasVisible && _lastBounds) {
-      try { _overlayWin.setBounds(_lastBounds); } catch (e) {}
-      _overlayWin.showInactive();
-      log('Overlay AFFICHE');
-      positionOverlayAbsolute(logos); // async non-bloquant : affine la position
-      return;
-    }
-    // Deja visible : on ne relance la detection PowerShell qu'au plus toutes les
-    // 3 s (evite un spawn a chaque cycle -> moins de CPU, plus fluide).
-    if (wasVisible && (Date.now() - _lastPosAt) < 3000) return;
-    await positionOverlayAbsolute(logos);
+    positionOverlayAbsolute(logos);
   }
   if (!_overlayWin.isVisible()) {
     _overlayWin.showInactive();
@@ -253,13 +124,54 @@ async function showOverlay(logos) {
 }
 
 function hideOverlay() {
-  // Epinglage pendant un envoi : on NE masque PAS (l'ouverture de Chrome fait
-  // perdre le 1er plan a Logos ; sans ca la confirmation disparaitrait aussitot).
-  if (Date.now() < _busyUntil) return;
   if (_overlayWin && _overlayWin.isVisible()) {
     _overlayWin.hide();
     log('Overlay CACHE');
   }
+}
+
+/** Applique l'etat click-through (dedup pour ne pas spammer l'API Windows). */
+function applyIgnore(ignore) {
+  if (!_overlayWin || _overlayWin.isDestroyed()) return;
+  if (_lastIgnore === ignore) return;
+  _lastIgnore = ignore;
+  try { _overlayWin.setIgnoreMouseEvents(ignore, { forward: true }); } catch (e) {}
+}
+
+/** Le curseur est-il au-dessus de la zone cliquable (union des boutons) ? */
+function cursorOverHotZone() {
+  if (!_overlayWin || _overlayWin.isDestroyed() || !_overlayWin.isVisible()) return false;
+  let pt, b;
+  try { pt = screen.getCursorScreenPoint(); b = _overlayWin.getBounds(); } catch (e) { return false; }
+  const r = _hotRect || { x: 0, y: 0, w: b.width, h: b.height };
+  const pad = 2;
+  return (
+    pt.x >= b.x + r.x - pad &&
+    pt.x <= b.x + r.x + r.w + pad &&
+    pt.y >= b.y + r.y - pad &&
+    pt.y <= b.y + r.y + r.h + pad
+  );
+}
+
+/**
+ * Surveille le curseur ~33x/s et pre-arme la capture souris. Le curseur survole
+ * le bouton plusieurs dizaines de ms avant le clic -> la capture (ignore=false)
+ * est deja active a l'instant du mousedown -> 1er clic OK. Cout negligeable.
+ */
+function startCursorPoll() {
+  if (_cursorPollTimer) return;
+  _cursorPollTimer = setInterval(() => {
+    if (!_overlayWin || _overlayWin.isDestroyed() || !_overlayWin.isVisible() || _suspended) {
+      applyIgnore(true);
+      return;
+    }
+    const enabled = !!_currentDevisInfo;
+    applyIgnore(enabled ? !cursorOverHotZone() : true);
+  }, 30);
+}
+
+function stopCursorPoll() {
+  if (_cursorPollTimer) { clearInterval(_cursorPollTimer); _cursorPollTimer = null; }
 }
 
 /**
@@ -284,17 +196,29 @@ async function refreshDevisDetection() {
     const r = await detectDevisPage();
 
     if (r.reason === 'logos-not-running') {
-      // Logos n'est pas en avant -> cacher completement (log seulement au 1er coup)
-      if (_lastHideReason !== r.reason) { log(`Logos = absent | raison=${r.reason}`); _lastHideReason = r.reason; }
+      // Logos n'est pas en avant -> cacher completement
+      log(`Logos = absent | raison=${r.reason}`);
       _currentDevisInfo = null;
       hideOverlay();
       return;
     }
 
+    // N'AFFICHER l'overlay QUE lorsque l'EDITEUR DE DEVIS est reellement au
+    // premier plan (r.devisFocused). Si un devis est ouvert en arriere-plan mais
+    // que le praticien est sur l'Etat civil / le schema / les actes, la fenetre
+    // devis existe (r.active=true) mais n'a PAS le focus -> on CACHE (sinon les
+    // pastilles apparaissent hors de la page devis, ce qui etait la regression).
+    if (!(r.active && r.devisFocused && r.devisId && r.patient)) {
+      log(`Pas sur l'editeur de devis -> OVERLAY CACHE | active=${r.active} focused=${r.devisFocused} raison=${r.reason || ''}`);
+      _currentDevisInfo = null;
+      hideOverlay();
+      return;
+    }
+
+    // Editeur de devis au premier plan -> positionner + afficher.
+    showOverlay(r);
+
     if (r.active && r.devisId && r.patient) {
-      // Sur la page Devis UNIQUEMENT : on affiche l'overlay (grisé si devis vide).
-      await showOverlay(r);
-      _lastHideReason = null; // reset : le prochain masquage sera logue une fois
       // Page Devis detectee, verifier que le devis a des actes en RAM
       // IMPORTANT: filtrer par nom patient pour eviter de lire un vieux devis cache
       let hasActes = false;
@@ -335,16 +259,9 @@ async function refreshDevisDetection() {
         updateOverlayInfo({ enabled: false, reason: 'Devis vide' });
       }
     } else {
-      // PAS sur la page Devis -> on MASQUE complètement l'overlay (plus de bouton
-      // grisé qui traîne sur la fiche patient ou ailleurs). Log uniquement au
-      // changement d'etat (sinon spam a chaque cycle de poll).
-      const reason = r.reason || 'unknown';
-      if (_lastHideReason !== reason) {
-        log(`Logos foreground mais pas page Devis -> OVERLAY CACHE | raison=${reason}`);
-        _lastHideReason = reason;
-      }
+      log(`Logos foreground mais pas page Devis -> BOUTON GRISE | raison=${r.reason || 'unknown'}`);
       _currentDevisInfo = null;
-      hideOverlay();
+      updateOverlayInfo({ enabled: false, reason: 'Pas sur page Devis' });
     }
   } catch (e) {
     log('refreshDevisDetection erreur: ' + e.message);
@@ -450,8 +367,18 @@ function setupIpcHandlers() {
   // renderer. Quand le curseur quitte les boutons -> ignore=true (traversant)
   // -> les icones Logos dessous redeviennent cliquables.
   ipcMain.on('overlay-set-ignore', (event, ignore) => {
-    if (_overlayWin && !_overlayWin.isDestroyed()) {
-      try { _overlayWin.setIgnoreMouseEvents(!!ignore, { forward: true }); } catch (e) {}
+    // Conserve pour compat : la source de verite est desormais le poll curseur
+    // (startCursorPoll), qui pre-arme la capture avant le clic.
+    applyIgnore(!!ignore);
+  });
+
+  // Rectangle chaud (union des boutons visibles) rapporte par le renderer, en px
+  // CSS relatifs a la fenetre. Utilise par le poll pour savoir quand capter.
+  ipcMain.on('overlay-hot-rect', (event, rect) => {
+    if (rect && typeof rect.x === 'number' && typeof rect.w === 'number' && rect.w > 0 && rect.h > 0) {
+      _hotRect = { x: rect.x, y: rect.y, w: rect.w, h: rect.h };
+    } else {
+      _hotRect = null;
     }
   });
 
@@ -462,14 +389,6 @@ function setupIpcHandlers() {
       return { success: false, error: 'no-devis-active' };
     }
     log(`Devis: ${_currentDevisInfo.devisId} | Patient: ${_currentDevisInfo.patient}`);
-
-    // EPINGLE l'overlay visible pendant l'envoi + la confirmation. Sans ca,
-    // l'ouverture de Chrome fait perdre le 1er plan a Logos et la detection
-    // masque l'overlay -> on ne verrait jamais "Envoi en cours / ✓ Envoye".
-    _busyUntil = Date.now() + BUSY_PIN_MS;
-    if (_overlayWin && !_overlayWin.isDestroyed() && !_overlayWin.isVisible()) {
-      try { _overlayWin.showInactive(); } catch (e) {}
-    }
 
     if (_onLancerPec) {
       try {
@@ -515,6 +434,7 @@ function startOverlay(onLancerPec) {
   createOverlay();
   setupIpcHandlers();
   startWatcher();
+  startCursorPoll(); // pre-arme la capture souris (fin du double-clic)
 }
 
 /**
@@ -522,6 +442,7 @@ function startOverlay(onLancerPec) {
  */
 function stopOverlay() {
   stopWatcher();
+  stopCursorPoll();
   if (_overlayWin && !_overlayWin.isDestroyed()) {
     _overlayWin.destroy();
     _overlayWin = null;

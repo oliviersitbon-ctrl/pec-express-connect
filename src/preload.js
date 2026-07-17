@@ -38,6 +38,10 @@ contextBridge.exposeInMainWorld('cabflow', {
   // Overlay click-through: true = traversant (icones Logos cliquables dessous),
   // false = capture (curseur sur les pastilles).
   setMouseIgnore: (ignore) => ipcRenderer.send('overlay-set-ignore', ignore),
+  // Zone chaude (union des boutons visibles), en px CSS relatifs a la fenetre.
+  // Le main process poll le curseur et pre-arme la capture souris quand il est
+  // dans cette zone -> le 1er clic est pris en compte (fin du double-clic).
+  setOverlayHotRect: (rect) => ipcRenderer.send('overlay-hot-rect', rect),
 
   // Status
   getStatus: () => {
