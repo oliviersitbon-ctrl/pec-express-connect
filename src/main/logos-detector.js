@@ -187,6 +187,15 @@ if (-not $patientA) {
     exit 0
 }
 
+# Precision : la fenetre devis (B) est-elle celle qui a le FOCUS ?
+# Sur l'ecran Devis, la fenetre active est B (l'editeur de devis). Sur l'ecran
+# schema/actes/fiche, le contenu est affiche par la fenetre patient (A) -> B
+# n'est PAS au premier plan (elle peut meme rester ouverte en arriere-plan).
+# On exige donc fg == B (et non A) pour n'afficher l'overlay QUE lorsqu'on edite
+# reellement le devis. GetForegroundWindow renvoie le top-level -> compare a B.
+$fgId = $fg.ToInt64()
+$devisFocused = ($fgId -eq $devisB.HWnd)
+
 # Recuperer aussi la position de la fenetre patient A (= fenetre Logos visible)
 # pour pouvoir positionner le bouton overlay relatif a Logos
 $result = @{
@@ -196,6 +205,8 @@ $result = @{
     devisId = $patientA.DevisId
     patient = $patientA.PatientName
     markers = $devisB.MarkersFound
+    foregroundHwnd = $fgId
+    devisFocused = $devisFocused
     logosLeft = $patientA.Left
     logosTop = $patientA.Top
     logosWidth = $patientA.W

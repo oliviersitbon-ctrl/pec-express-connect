@@ -30,9 +30,16 @@ let _onLancerPec = null;
 let _currentDevisInfo = null;
 let _detectionInflight = false;
 let _attachedParentHwnd = null; // HWND du parent Logos auquel on est attache
+let _suspended = false; // quand true: overlay masque + detection en pause (ex: pendant l'impression auto)
+let _pollTimer = null; // revérification periodique (filet de securite du hook foreground)
 
 const OVERLAY_WIDTH = 300;
 const OVERLAY_HEIGHT = 32;
+// Le hook foreground ne se declenche PAS quand on change de page A L'INTERIEUR
+// de Logos (la fenetre top-level ne change pas). On re-verifie donc l'etat a
+// intervalle regulier pour masquer l'overlay des qu'on quitte la page Devis
+// (et pour le faire disparaitre proprement si Logos se ferme sans event final).
+const POLL_MS = 1500;
 
 /**
  * Cree la fenetre overlay (cachee au demarrage).
@@ -62,7 +69,13 @@ function createOverlay() {
 
   _overlayWin.loadFile(path.join(__dirname, '..', 'renderer', 'overlay-button.html'));
   _overlayWin.setAlwaysOnTop(true, 'screen-saver');
-  _overlayWin.setIgnoreMouseEvents(false); // doit recevoir les clics
+  // Click-through PAR DEFAUT : le praticien peut cliquer les icones de Logos
+  // situees sous l'overlay a tout moment (PDF, @, imprimante...). La capture
+  // souris n'est reactivee que lorsque le curseur survole les 2 pastilles
+  // flottantes (le renderer overlay-button.html pilote ce basculement via
+  // window.cabflow.setMouseIgnore). forward:true => le renderer recoit quand meme
+  // les mouvements souris, indispensable pour detecter le survol.
+  _overlayWin.setIgnoreMouseEvents(true, { forward: true });
 
   _overlayWin.on('closed', () => { _overlayWin = null; });
   log('Overlay window cree (cache au demarrage)');
@@ -119,23 +132,35 @@ function updateOverlayInfo(info) {
  * Appele a chaque fois qu'une fenetre devient au premier plan.
  */
 async function refreshDevisDetection() {
+  if (_suspended) { hideOverlay(); return; } // pause pendant l'impression auto
   if (_detectionInflight) return;
   _detectionInflight = true;
   try {
     const r = await detectDevisPage();
 
-    if (r.reason === 'logos-not-running' || r.reason === 'logos-not-foreground') {
-      // Logos n'est pas en avant -> cacher completement
-      log(`Logos = absent | raison=${r.reason}`);
+    // REGLE UNIQUE D'AFFICHAGE : l'overlay n'apparait QUE lorsqu'on est
+    // reellement sur la page Devis de Logos (r.active === true).
+    // Tous les autres cas -> masquage complet :
+    //   - logos-not-running    : Logos ferme
+    //   - logos-not-foreground : Logos ouvert mais une autre appli est devant
+    //   - no-devis-window      : Logos devant mais autre page (fiche, schema, actes...)
+    //   - busy/timeout/parse-error/... : etat transitoire -> on masque par securite
+    // => plus de "boutons gris" fantomes hors page devis ou Logos ferme.
+    if (!r || !r.active || r.devisFocused === false) {
+      if (r && r.active && r.devisFocused === false) {
+        log('Overlay masque : fenetre Devis ouverte mais pas au premier plan (focus ailleurs)');
+      } else if (r && r.reason && r.reason !== 'busy') {
+        log(`Overlay masque (pas page Devis) | raison=${r.reason}`);
+      }
       _currentDevisInfo = null;
       hideOverlay();
       return;
     }
 
-    // Logos est foreground -> afficher le bouton (etat a determiner)
+    // On est bien sur la page Devis ET elle est au premier plan -> afficher.
     showOverlay(r);
 
-    if (r.active && r.devisId && r.patient) {
+    if (r.devisId && r.patient) {
       // Page Devis detectee, verifier que le devis a des actes en RAM
       // IMPORTANT: filtrer par nom patient pour eviter de lire un vieux devis cache
       let hasActes = false;
@@ -176,9 +201,11 @@ async function refreshDevisDetection() {
         updateOverlayInfo({ enabled: false, reason: 'Devis vide' });
       }
     } else {
-      log(`Logos foreground mais pas page Devis -> BOUTON GRISE | raison=${r.reason || 'unknown'}`);
+      // Sur la page Devis mais patient/devis non encore identifie -> bouton grise
+      // (affiche, car on EST bien sur la page devis, mais non actionnable).
+      log(`Logos page Devis = OUI mais patient non identifie -> BOUTON GRISE | raison=${r.reason || 'no-patient'}`);
       _currentDevisInfo = null;
-      updateOverlayInfo({ enabled: false, reason: 'Pas sur page Devis' });
+      updateOverlayInfo({ enabled: false, reason: 'Devis' });
     }
   } catch (e) {
     log('refreshDevisDetection erreur: ' + e.message);
@@ -277,9 +304,38 @@ function stopWatcher() {
 }
 
 /**
+ * Filet de securite : re-verifie l'etat Logos a intervalle regulier, en plus
+ * du hook foreground evenementiel. Necessaire car passer de la page Devis a une
+ * autre page DANS Logos ne change pas la fenetre top-level -> aucun event
+ * foreground -> sans ce poll, l'overlay resterait affiche hors page Devis.
+ * Les gardes _detectionInflight / _detectorBusy evitent tout empilement.
+ */
+function startPoll() {
+  if (_pollTimer) return;
+  _pollTimer = setInterval(() => {
+    if (_suspended) return;
+    refreshDevisDetection();
+  }, POLL_MS);
+  log('Poll de securite overlay demarre (' + POLL_MS + 'ms)');
+}
+
+function stopPoll() {
+  if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+}
+
+/**
  * Handler IPC: appele quand l'utilisateur clique sur "Lancer la PEC"
  */
 function setupIpcHandlers() {
+  // Bascule click-through / capture, pilote par le survol des pastilles cote
+  // renderer. Quand le curseur quitte les boutons -> ignore=true (traversant)
+  // -> les icones Logos dessous redeviennent cliquables.
+  ipcMain.on('overlay-set-ignore', (event, ignore) => {
+    if (_overlayWin && !_overlayWin.isDestroyed()) {
+      try { _overlayWin.setIgnoreMouseEvents(!!ignore, { forward: true }); } catch (e) {}
+    }
+  });
+
   ipcMain.handle('overlay-lancer-pec', async (event, intent) => {
     log('=== CLIC LANCER LA PEC ===');
     if (!_currentDevisInfo) {
@@ -311,6 +367,20 @@ function setOnLancerPec(fn) {
 }
 
 /**
+ * Suspend/reprend l'overlay. Suspendu: la fenetre est masquee et la detection
+ * ne la reaffiche pas (utilise pendant l'impression auto du devis pour que
+ * l'overlay n'intercepte PAS le clic sur l'icone imprimante de Logos).
+ */
+function setSuspended(on) {
+  _suspended = !!on;
+  if (_suspended) {
+    hideOverlay();
+  } else {
+    refreshDevisDetection(); // reaffiche selon l'etat courant de Logos
+  }
+}
+
+/**
  * Demarre tout: cree la fenetre, setup IPC, lance le polling
  */
 function startOverlay(onLancerPec) {
@@ -318,6 +388,7 @@ function startOverlay(onLancerPec) {
   createOverlay();
   setupIpcHandlers();
   startWatcher();
+  startPoll();
 }
 
 /**
@@ -325,6 +396,7 @@ function startOverlay(onLancerPec) {
  */
 function stopOverlay() {
   stopWatcher();
+  stopPoll();
   if (_overlayWin && !_overlayWin.isDestroyed()) {
     _overlayWin.destroy();
     _overlayWin = null;
@@ -337,5 +409,6 @@ module.exports = {
   stopOverlay,
   showOverlay,
   hideOverlay,
+  setSuspended,
   readCurrentDevis // re-export pour faciliter
 };
