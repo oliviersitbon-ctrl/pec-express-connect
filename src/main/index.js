@@ -737,13 +737,7 @@ async function refreshModules() {
     const cfg = cm.getConfig() || {};
     const apiKey = cfg.apiKey || '';
     if (!apiKey) return; // poste pas encore appaire
-    // IMPORTANT : les endpoints /api/desktop/* sont TOUJOURS servis par le
-    // backend MDD (app.mondevisdentaire.com), y compris pour un cabinet lie a
-    // Labora dont urls.site pointe vers app.laboradental.fr (front, sans ces
-    // routes). Utiliser urls.site ici faisait echouer le whoami -> l'etat des
-    // modules n'etait jamais rafraichi (bouton non masque apres desactivation).
-    // On aligne donc sur l'appairage et les autres appels desktop = CONFIG.siteUrl.
-    const site = CONFIG.siteUrl;
+    const site = (cfg.urls && cfg.urls.site) || CONFIG.siteUrl;
     const fetch = require('node-fetch');
     const res = await fetch(site + '/api/desktop/whoami', { headers: { 'x-api-key': apiKey } });
     const json = await res.json().catch(() => ({}));
@@ -1176,6 +1170,65 @@ async function readAndOpenCabFlow(docName, intent) {
             ' | Devis: ' + data.devisId + ' | ' + (data.actes || []).length + ' actes' +
             ' | NIR: ' + (data.nir || 'ABSENT'));
 
+        // === SÉLECTION DU BON DEVIS (celui AFFICHÉ, pas "le plus récent") ===
+        // CabFlowReader retombe sur le devis le plus récent quand le devisId
+        // demandé n'est pas trouvé (le connecteur ne lui transmet pas le devisId
+        // affiché). Mais la DLL injectée nous donne le TOTAL honoraires AFFICHÉ
+        // (uiCtx.honoraires), et CabFlowReader liste TOUS les devis du patient sur
+        // stderr (« DevisID=… Date=… MemoOff=0x… »). On retient donc le devis dont
+        // le total correspond à l'écran → on lit le BON devis même si le praticien
+        // est sur un ancien devis. Best-effort : à défaut, on garde la sélection
+        // par défaut de CabFlowReader.
+        try {
+          const uiCtx = global._cabflowUiContext;
+          if (uiCtx && uiCtx.honoraires > 0 && mmoCtx.patientsDir) {
+            const cands = [...stderr.matchAll(/DevisID=(\d+)\s+Date=(\S+)\s+MemoOff=0x([0-9A-Fa-f]+)/g)]
+              .map(m => ({ devId: parseInt(m[1], 10), memoOff: parseInt(m[3], 16) }));
+            if (cands.length > 1) {
+              const mmoParser = require('./logos-mmo-parser');
+              mmoParser.setLogger(() => {});
+              const mmoPath = require('path').join(mmoCtx.patientsDir, 'DEVIS.MMO');
+              // Lecture du fichier MMO UNE SEULE FOIS (au lieu d'une lecture complète
+              // par candidat) : on n'extrait que l'attribut honorairesG de chaque
+              // devis → l'ouverture reste rapide même avec beaucoup de devis.
+              let best = null;
+              let mmoBuf = null;
+              try { mmoBuf = require('fs').readFileSync(mmoPath); } catch (e) { mmoBuf = null; }
+              if (mmoBuf) {
+                for (const c of cands) {
+                  try {
+                    const raw = mmoParser.stripPageHeaders(mmoBuf, c.memoOff, 60000);
+                    const s = raw.indexOf('<DevisGraphique');
+                    if (s < 0) continue;
+                    const gt = raw.indexOf('>', s);
+                    const tag = gt > s ? raw.slice(s, gt + 1) : raw.slice(s, s + 2000);
+                    const mHon = tag.match(/honorairesG="([^"]*)"/);
+                    const hon = mHon ? parseFloat(String(mHon[1]).replace(',', '.')) : NaN;
+                    if (!isNaN(hon)) {
+                      const diff = Math.abs(hon - uiCtx.honoraires);
+                      if (best === null || diff < best.diff) best = { c, hon, diff };
+                    }
+                  } catch (e) { /* candidat illisible → ignoré */ }
+                }
+              }
+              if (best && best.diff <= 0.5 && best.c.memoOff !== mmoCtx.memoOffset) {
+                log('[CABFLOW] Devis AFFICHÉ retrouvé par le total UI (' + uiCtx.honoraires +
+                    '€) → devisId=' + best.c.devId + ' au lieu du plus récent (devisId=' + mmoCtx.devisId + ')');
+                mmoCtx.devisId = best.c.devId;
+                mmoCtx.memoOffset = best.c.memoOff;
+                data.devisId = best.c.devId;
+              } else if (best && best.diff <= 0.5) {
+                log('[CABFLOW] Devis sélectionné = devis affiché (total UI concordant)');
+              } else {
+                log('[CABFLOW] Aucun devis ne correspond au total UI (' + uiCtx.honoraires +
+                    '€) — sélection CabFlowReader conservée');
+              }
+            }
+          }
+        } catch (eSel) {
+          log('[CABFLOW] Sélection du devis affiché échouée (non bloquant): ' + eSel.message);
+        }
+
         // === RE-PARSE PROPRE via notre parseur MMO Node.js ===
         // CabFlowReader.exe a un bug: il ne strip pas les 12 bytes de header
         // toutes les 128 bytes du fichier DEVIS.MMO -> libelles pollues + actes manquants
@@ -1308,65 +1361,152 @@ async function readAndOpenCabFlow(docName, intent) {
           return;
         }
 
-        // === INTENT PEC : on route par le PARSEUR SERVEUR (comme la voie devis),
-        // puis on ouvre le wizard PEC prérempli à l'étape actes. Le PRINT (shift+
-        // clic imprimante invisible) doit se faire AVANT d'ouvrir le navigateur :
-        // il exige que Logos soit au premier plan (l'ouverture du navigateur
-        // volerait le focus). Et c'est ce parse serveur qui fournit le PANIER +
-        // détails AMO complets. Repli sur les actes mémoire si le print/parse
-        // échoue → jamais bloquant.
+        // === INTENT PEC — OUVERTURE INSTANTANÉE ===
+        // On ouvre MDD IMMÉDIATEMENT avec les données déjà lues en local sur Logos
+        // (patient + actes CabFlowReader), SANS attendre l'écriture du PDF ni le
+        // parseur serveur. On ne déclenche ici que le Shift+clic imprimante ; le
+        // PDF se génère ensuite tout seul et part au serveur EN TÂCHE DE FOND
+        // (boucle signature / réimportation, via logos_numero).
+        //
+        // ⚠️ Le Shift+clic EXIGE que Logos soit au premier plan : on le fait ICI,
+        // AVANT d'ouvrir le navigateur (qui volerait le focus), et on n'attend que
+        // le CLIC — pas le fichier.
+        //
+        // NB : le panier et le détail multi-matériaux proviennent du parseur
+        // serveur du PDF (colonnes non lues en local) ; à l'ouverture instantanée
+        // ils peuvent être vides/partiels et le praticien les complète. Le parse
+        // serveur continue en arrière-plan.
         try {
-          const site = CONFIG.siteUrl;
           const overlayMod = require('./overlay-pec');
-          let pecPdfB64 = null, pecPdfName = null;
           try {
             overlayMod.setSuspended(true);
             await new Promise(r => setTimeout(r, 250)); // laisse l'overlay quitter le hit-test
             const printer = require('./logos-print-devis');
             printer.setLogger(log);
-            await printer.printAndWaitPdf(data.patientsDir, data.logosNumero);
+            const clicked = await printer.shiftClickImprimer(); // CLIC SEUL — on n'attend PAS le PDF
+            if (clicked && clicked.ok) {
+              log('[PEC] Shift+clic imprimante OK — PDF en génération, ouverture immédiate de MDD');
+            } else {
+              log('[PEC] Shift+clic imprimante non effectué (' + ((clicked && clicked.reason) || '?') +
+                  ') — ouverture immédiate quand même');
+            }
+            // Court délai pour laisser Logos enregistrer l'impression AVANT que
+            // l'ouverture du navigateur ne prenne le focus. Ne bloque pas sur le PDF.
+            await new Promise(r => setTimeout(r, 200));
           } catch (ePrint) {
-            log('[PEC] Impression auto du devis échouée (non bloquant): ' + ePrint.message);
+            log('[PEC] Impression auto échouée (non bloquant): ' + ePrint.message);
           } finally {
             try { overlayMod.setSuspended(false); } catch (e) {}
           }
-          try {
-            const devisPdf = require('./logos-devis-pdf');
-            devisPdf.setLogger(log);
-            // preferFreshest=true : on vient d'imprimer le devis ACTIF. Le devisId
-            // lu en mémoire peut pointer sur l'ANCIEN devis → on prend le plus récent.
-            let found = devisPdf.findLatestDevisPdf(data.patientsDir, data.logosNumero, data.devisId, true);
-            for (let i = 0; i < 8 && !found; i++) {
-              await new Promise(r => setTimeout(r, 800));
-              found = devisPdf.findLatestDevisPdf(data.patientsDir, data.logosNumero, data.devisId, true);
-            }
-            if (found) { pecPdfB64 = found.base64; pecPdfName = found.fileName; }
-          } catch (ePdf) {
-            log('[PEC] Lecture PDF devis (non bloquant): ' + ePdf.message);
-          }
-          const parsedPec = await fetchServerParsedDevis(site, pecPdfB64, pecPdfName);
-          if (parsedPec && Array.isArray(parsedPec.actes) && parsedPec.actes.length) {
-            data.actes = parsedPec.actes; // actes parsés serveur = source de vérité (panier, AMO…)
-            if (parsedPec.patient) {
-              data.nom = parsedPec.patient.nom || data.nom;
-              data.prenom = parsedPec.patient.prenom || data.prenom;
-              data.dateNaissance = parsedPec.patient.dateNaissance || data.dateNaissance;
-              data.nir = parsedPec.patient.nir || data.nir;
-              data.nirCle = parsedPec.patient.nirCle || data.nirCle;
-            }
-            log('[PEC] Wizard prérempli depuis le parseur serveur (' + parsedPec.actes.length + ' actes)');
-          } else {
-            log('[PEC] Repli sur les actes CabFlowReader (parseur serveur indisponible)');
-          }
-        } catch (ePecParse) {
-          log('[PEC] Parsing serveur PEC échoué (non bloquant): ' + ePecParse.message);
+        } catch (eOuter) {
+          log('[PEC] Bloc impression instant-open erreur (non bloquant): ' + eOuter.message);
         }
 
-        // Ouverture AVEC auto-login (magic-link via /api/desktop/session) ;
-        // repli automatique sur la session navigateur si indisponible.
-        log('[CABFLOW] Ouverture de l assistant PEC (auto-login desktop)...');
+        // Ouverture IMMÉDIATE du wizard PEC depuis les données locales Logos
+        // (auto-login magic-link via /api/desktop/session, repli session sinon).
+        log('[CABFLOW] Ouverture INSTANTANÉE de l assistant PEC (données Logos locales)...');
         await openPecWizard(data);
         resolve(true);
+
+        // === TÂCHE DE FOND (non bloquante) : dès que Logos a écrit le PDF officiel,
+        // on l'envoie au serveur pour la boucle signature / réimportation. Ceci
+        // n'affecte pas l'ouverture ci-dessus (déjà faite).
+        void (async () => {
+          try {
+            const site = CONFIG.siteUrl;
+            const devisPdf = require('./logos-devis-pdf');
+            devisPdf.setLogger(log);
+
+            // Attend qu'au moins un Devis-*.pdf frais apparaisse (Logos écrit le
+            // PDF quelques secondes après le Shift+clic).
+            let candidates = devisPdf.listDevisPdfs(data.patientsDir, data.logosNumero, 6);
+            for (let i = 0; i < 30 && candidates.length === 0; i++) { // ~24 s max
+              await new Promise(r => setTimeout(r, 800));
+              candidates = devisPdf.listDevisPdfs(data.patientsDir, data.logosNumero, 6);
+            }
+            if (!candidates.length) {
+              log('[PEC][bg] Aucun PDF officiel détecté — devis non transmis (impression manquée ?)');
+              return;
+            }
+
+            const { getConfig } = require('./config-manager');
+            const apiKey = (getConfig() || {}).apiKey || '';
+            if (!apiKey) {
+              // Repli minimal : alimente au moins la table panier avec le plus récent.
+              await fetchServerParsedDevis(site, candidates[0].base64, candidates[0].fileName);
+              log('[PEC][bg] Pas de clé API — PDF le plus récent envoyé au parseur (panier) seulement');
+              return;
+            }
+
+            // Actes lus dans Logos (référence) : on n'attache pour signature QUE le
+            // PDF dont les actes correspondent (le praticien peut être sur un ancien
+            // devis alors que le dossier contient un Devis-*.pdf plus récent).
+            const refActes = (data.actes || []).map(a => ({
+              code: a.ccam || a.code || a.cotation || '',
+              montant: (a.honoraires != null ? a.honoraires : a.montant),
+              dent: a.dent || a.numero_dent || '',
+            }));
+
+            const fetch = require('node-fetch');
+            let done = false;
+            for (const cand of candidates) {
+              try {
+                const resp = await fetch(site + '/api/desktop/devis-pdf', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+                  body: JSON.stringify({
+                    logosNumero: (data.logosNumero != null ? String(data.logosNumero) : ''),
+                    pdfBase64: cand.base64,
+                    pdfFileName: cand.fileName,
+                    software: 'logosw',
+                    refActes,
+                  }),
+                });
+                const j = await resp.json().catch(() => ({}));
+                if (j && j.matched === false) {
+                  log('[PEC][bg] ' + cand.fileName + ' ne correspond pas aux actes Logos — candidat suivant');
+                  continue; // le panier de ce devis est appris côté serveur quand même
+                }
+                const etat = j && j.attached ? 'attaché au devis PEC (signable)'
+                  : (j && j.staged ? 'mis en attente (devis PEC pas encore créé)' : 'transmis');
+                log('[PEC][bg] Bon PDF (' + cand.fileName + ') → ' + etat + ' + table panier alimentée');
+                done = true;
+                break;
+              } catch (eOne) {
+                log('[PEC][bg] Envoi ' + cand.fileName + ' échoué: ' + eOne.message + ' — candidat suivant');
+              }
+            }
+            if (!done) {
+              // REPLI : aucun candidat ne "matche" les actes lus dans Logos (écart
+              // de format, devis local ≠ imprimé, etc.). Plutôt que de laisser le
+              // patient SANS devis à signer, on attache quand même le PLUS RÉCENT
+              // (= celui qu'on vient d'imprimer), SANS comparaison.
+              try {
+                const cand = candidates[0];
+                const resp = await fetch(site + '/api/desktop/devis-pdf', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+                  body: JSON.stringify({
+                    logosNumero: (data.logosNumero != null ? String(data.logosNumero) : ''),
+                    pdfBase64: cand.base64,
+                    pdfFileName: cand.fileName,
+                    software: 'logosw',
+                    // pas de refActes → attache inconditionnelle
+                  }),
+                });
+                const j = await resp.json().catch(() => ({}));
+                const etat = j && j.attached ? 'attaché au devis PEC (signable)'
+                  : (j && j.staged ? 'mis en attente (devis PEC pas encore créé)' : 'transmis');
+                log('[PEC][bg] Aucun PDF ne matchait les actes → repli : plus récent (' +
+                    cand.fileName + ') ' + etat);
+              } catch (eF) {
+                log('[PEC][bg] Repli d\'attache échoué (non bloquant): ' + eF.message);
+              }
+            }
+          } catch (eBg) {
+            log('[PEC][bg] Tâche de fond PDF échouée (non bloquant): ' + eBg.message);
+          }
+        })();
       } catch (e) {
         log('[CABFLOW] JSON parse error: ' + e.message);
         log('[CABFLOW] Stdout brut: ' + stdout.substring(0, 200));
@@ -2736,18 +2876,8 @@ function setupIpcHandlers() {
   });
 
   // Modules actifs (PEC / Devis) - pilote l'affichage des boutons overlay.
-  // Renvoie l'etat EN CACHE (immediat). En parallele, si le cache a plus de 60s,
-  // on declenche un refresh serveur (non bloquant) : ainsi, quand le praticien
-  // est sur la page devis, une (des)activation de module dans l'admin se reflete
-  // en ~60s (le prochain poll de l'overlay reprend la valeur fraiche), au lieu
-  // d'attendre le refresh periodique de 15 min.
   ipcMain.handle('get-modules', () => {
     try {
-      const now = Date.now();
-      if (now - (refreshModules._lastAt || 0) > 60000) {
-        refreshModules._lastAt = now;
-        Promise.resolve().then(() => refreshModules()).catch(() => {});
-      }
       const m = (require('./config-manager').getConfig() || {}).modules || {};
       return { pec: m.pec !== false, devis: m.devis !== false };
     } catch (e) { return { pec: true, devis: true }; }
