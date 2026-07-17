@@ -556,28 +556,52 @@ function forceBrowserForeground() {
 }
 
 /**
- * Construit l'URL Mon devis dentaire depuis les données CabFlowReader JSON
+ * Construit le CHEMIN RELATIF du wizard PEC prérempli depuis les données
+ * CabFlowReader JSON (commun à toutes les voies d'ouverture).
  */
-function buildCabFlowUrl(data) {
-  let base = 'https://app.mondevisdentaire.com/prises-en-charge/nouvelle';
-  try { const _c = require('./config-manager').getConfig(); if (_c && _c.urls && _c.urls.pecNouvelle) base = _c.urls.pecNouvelle; } catch (e) {}
+function buildWizardPath(data) {
+  // Tolérant aux DEUX formes d'actes : CabFlowReader mémoire ({ccam,nom,honoraires,dent})
+  // ET parseur serveur logosw ({code,libelle,montant,dent,materiau,panier}). Les deux
+  // voies (devis + PEC) convergent ainsi vers le même parcours prérempli.
   const actes = (data.actes || []).map(a => ({
-    code_ccam: a.ccam || '',
-    nature_acte: a.nom || '',
-    montant: String(a.honoraires != null ? a.honoraires : 0),
-    numero_dent: (a.dent || '').replace(/\s+/g, ','),
-    panier: '',
-    materiau: ''
+    code_ccam: a.ccam || a.code || a.code_ccam || '',
+    nature_acte: a.nom || a.libelle || a.nature_acte || '',
+    montant: String(a.honoraires != null ? a.honoraires : (a.montant != null ? a.montant : 0)),
+    numero_dent: String(a.dent || a.numero_dent || '').replace(/\s+/g, ','),
+    panier: a.panier || '',
+    materiau: a.materiau || '',
+    // Détails Assurance Maladie Obligatoire : base de remboursement Sécu,
+    // montant remboursé (AMO) et non remboursé — bien parsés côté serveur mais
+    // qui étaient LARGUÉS ici (seuls 6 champs transmis). Le prefill les lit sous
+    // baseRemb/base, montantRemb/amo, montantNonRemb/reste.
+    baseRemb: String(
+      a.baseRemb != null ? a.baseRemb
+      : a.base != null ? a.base
+      : a.baseRemboursement != null ? a.baseRemboursement
+      : ''
+    ),
+    montantRemb: String(a.montantRemb != null ? a.montantRemb : (a.amo != null ? a.amo : '')),
+    montantNonRemb: String(a.montantNonRemb != null ? a.montantNonRemb : (a.reste != null ? a.reste : '')),
   }));
   const prat = data.praticienInfo || {};
   const mut = data.mutuelle || {};
   const params = new URLSearchParams({
     source: 'cabflow-desktop',
+    type: 'pec', // entre directement dans le parcours PEC (saute l'ecran de choix)
+    // NUMERO du dossier Logos : c'est le pivot qui permet, apres signature, de
+    // reecrire les documents (ligne "envoye pour signature" + docs signes) dans
+    // le BON dossier patient Logos. Sans lui, le connecteur ne sait pas ou ecrire.
+    logos_numero: (data.logosNumero != null ? String(data.logosNumero) : ''),
+    source_system: 'logos',
     nom: data.nom || '',
     prenom: data.prenom || '',
     date_naissance: data.dateNaissance || '',
     nir: data.nir || '',
+    nir_cle: data.nirCle || '',
     email: data.email || '',
+    // Téléphone patient (portable lu dans CIVIL.FIC) — le prefill le lit sous
+    // le param `telephone`, puis il est stocké sur patients.phone à la création.
+    telephone: data.portable || '',
     praticien_nom: prat.nom || '',
     praticien_prenom: prat.prenom || '',
     praticien_rpps: prat.rpps || '',
@@ -588,7 +612,71 @@ function buildCabFlowUrl(data) {
     mutuelle_numero_contrat: mut.numeroContrat || '',
     actes: JSON.stringify(actes)
   });
-  return base + '?' + params.toString();
+  return '/prises-en-charge/nouvelle?' + params.toString();
+}
+
+/**
+ * URL d'ouverture SANS auto-login (repli). Cabinet Labora : iframe MDD dans
+ * Labora (SSO si session Labora active). Cabinet non-Labora : onglet MDD direct.
+ * Dans les deux cas une session navigateur est nécessaire.
+ */
+function buildCabFlowUrl(data) {
+  const wizardPath = buildWizardPath(data);
+  let isLabora = false;
+  try {
+    const _c = require('./config-manager').getConfig();
+    isLabora = /laboradental/i.test((_c && _c.urls && _c.urls.site) || '');
+  } catch (e) {}
+  if (isLabora) {
+    return 'https://app.laboradental.fr/app/dentiste/pec?next=' + encodeURIComponent(wizardPath);
+  }
+  return 'https://app.mondevisdentaire.com' + wizardPath;
+}
+
+/**
+ * Ouvre l'assistant PEC AVEC auto-login : le connecteur (appairé, clé API du
+ * cabinet) demande au serveur un lien de connexion à usage unique
+ * (/api/desktop/session), puis ouvre l'assistant DÉJÀ connecté — plus aucune
+ * saisie de mot de passe. Repli sur buildCabFlowUrl (session requise) si
+ * l'auto-login échoue (pas de clé, réseau, etc.).
+ */
+async function openPecWizard(data) {
+  const wizardPath = buildWizardPath(data);
+
+  // OVERRIDE UNIVERSEL : auto-login MDD direct via /api/desktop/session (le
+  // connecteur possede la cle MDD du cabinet). Vaut pour TOUS les cabinets, lies
+  // a Labora ou non -> plus jamais d'ecran de connexion. Pour un cabinet Labora,
+  // la PEC s'ouvre dans MDD (mode « gere par Labora »), pas dans l'iframe Labora
+  // (impossible d'outrepasser la session Labora sans identifiants Labora).
+  try {
+    const fetch = require('node-fetch');
+    const { getConfig } = require('./config-manager');
+    const cfg = getConfig() || {};
+    const apiKey = cfg.apiKey || '';
+    const site = CONFIG.siteUrl;
+    if (apiKey) {
+      const prat = data.praticienInfo || {};
+      const agendaName = data.praticien || [prat.prenom, prat.nom].filter(Boolean).join(' ') || undefined;
+      const resp = await fetch(site + '/api/desktop/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+        body: JSON.stringify({ redirectPath: wizardPath, agendaName }),
+      });
+      const j = await resp.json().catch(() => ({}));
+      if (resp.ok && j && j.url) {
+        log('[PEC] Auto-login desktop OK -> ouverture de l assistant deja connecte');
+        openUrlInBrowser(j.url);
+        return;
+      }
+      log('[PEC] Auto-login desktop indisponible (' + ((j && j.error) || ('HTTP ' + resp.status)) + ') -> repli session navigateur');
+    } else {
+      log('[PEC] Aucune cle API -> pas d auto-login, repli session navigateur');
+    }
+  } catch (e) {
+    log('[PEC] Auto-login desktop exception (' + e.message + ') -> repli session navigateur');
+  }
+  // Repli : comportement historique (Labora iframe ou MDD direct).
+  openUrlInBrowser(buildCabFlowUrl(data));
 }
 
 /**
@@ -662,11 +750,64 @@ async function refreshModules() {
   }
 }
 
+/**
+ * Parseur devis CÔTÉ SERVEUR — helper PARTAGÉ par la voie « Devis » et la voie
+ * « PEC » (principe : le connecteur est un RELAIS, tout passe par le serveur).
+ * Envoie le PDF officiel Logos au parseur du site (/api/devis/parse, profil
+ * "logosw" = convention CNAM 2018) et renvoie { devisRef, dateDevis,
+ * totalMontant, actes[], patient } ou null si aucun PDF / échec / 0 acte.
+ * NE LÈVE JAMAIS : en cas d'erreur, renvoie null → l'appelant retombe sur les
+ * actes lus en mémoire (comportement historique préservé, jamais bloquant).
+ */
+async function fetchServerParsedDevis(site, pdfBase64, pdfFileName) {
+  if (!pdfBase64) {
+    log('[PARSE] Pas de PDF officiel -> parseur serveur impossible, repli local');
+    return null;
+  }
+  try {
+    const fetch = require('node-fetch');
+    const FormData = require('form-data');
+    const pdfBuf = Buffer.from(pdfBase64, 'base64');
+    const fd = new FormData();
+    fd.append('file', pdfBuf, { filename: pdfFileName || 'devis.pdf', contentType: 'application/pdf' });
+    fd.append('software', 'logosw');
+    const pr = await fetch(site + '/api/devis/parse', { method: 'POST', body: fd, headers: fd.getHeaders() });
+    const pj = await pr.json().catch(() => ({}));
+    const pActes = (pj && Array.isArray(pj.actes)) ? pj.actes : [];
+    if (pr.ok && pActes.length) {
+      log('[PARSE] Parsé côté serveur (logosw): ' + pActes.length + ' actes, total=' +
+          (pj.totalMontant != null ? pj.totalMontant : '?'));
+      return {
+        devisRef: pj.devisRef || undefined,
+        dateDevis: pj.dateDevis || undefined,
+        totalMontant: (typeof pj.totalMontant === 'number') ? pj.totalMontant : undefined,
+        actes: pActes, // format compatible /api/devis/share ET desktop-prefill
+        patient: {
+          nom: (pj.patient && pj.patient.nom) || '',
+          prenom: (pj.patient && pj.patient.prenom) || '',
+          dateNaissance: (pj.patient && pj.patient.dateNaissance) || '',
+          nir: (pj.patient && pj.patient.nir) || '',
+          nirCle: (pj.patient && pj.patient.nirCle) || '',
+        },
+      };
+    }
+    log('[PARSE] Parseur serveur: ' + ((pj && pj.error) || ('0 acte / HTTP ' + pr.status)) + ' -> repli local');
+    return null;
+  } catch (eP) {
+    log('[PARSE] Parseur serveur exception (' + eP.message + ') -> repli local');
+    return null;
+  }
+}
+
 async function sendDevisToPatient(data) {
   const fetch = require('node-fetch');
   const { getConfig } = require('./config-manager');
   const cfg = getConfig() || {};
-  const site = (cfg.urls && cfg.urls.site) || CONFIG.siteUrl;
+  // Le devis + toute l'infra (API /api/devis/share, table devis, stockage PDF,
+  // retour des docs signes) vivent sur le host MDD, meme pour un cabinet Labora
+  // (la facade laboradental.fr ne sert pas ces routes -> HTTP 405). La cle API
+  // du cabinet est valide cote MDD, donc on force toujours le host MDD ici.
+  const site = CONFIG.siteUrl;
   const apiKey = cfg.apiKey || '';
 
   if (!apiKey) {
@@ -699,25 +840,81 @@ async function sendDevisToPatient(data) {
     : actes.reduce((sum, a) => sum + (Number(a.montant) || 0), 0);
 
   const who = [data.prenom, data.nom].filter(Boolean).join(' ') || 'ce patient';
-  // Fenetre de saisie/confirmation de l'email AVANT envoi : prerempli avec
-  // l'email lu dans Logos, modifiable (ou a saisir s'il manque).
-  const prompt = await promptDevisEmail({ who, email, acteCount: actes.length, total: total.toFixed(2) });
-  if (!prompt || !prompt.confirmed) { log('[DEVIS] Envoi annule par le praticien'); return false; }
-  email = (prompt.email || '').trim();
-  if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-    log('[DEVIS] Email invalide/absent apres saisie: "' + email + '"');
-    dialog.showMessageBoxSync({
-      type: 'warning',
-      title: 'Mon devis dentaire - Envoi de devis',
-      message: 'Adresse email invalide.',
-      detail: "Le devis n'a pas ete envoye : renseignez une adresse email valide.",
-      buttons: ['OK'],
-    });
-    return false;
+  const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+  // Si une adresse email valide est DEJA enregistree (lue dans Logos), on envoie
+  // DIRECTEMENT : ni fenetre de saisie, ni popup de confirmation. La fenetre de
+  // saisie de l'email ne s'ouvre QUE s'il n'y a pas d'email valide enregistre.
+  const emailWasRegistered = EMAIL_RE.test(email);
+  if (!emailWasRegistered) {
+    const prompt = await promptDevisEmail({ who, email, acteCount: actes.length, total: total.toFixed(2) });
+    if (!prompt || !prompt.confirmed) { log('[DEVIS] Envoi annule par le praticien'); return false; }
+    email = (prompt.email || '').trim();
+    if (!EMAIL_RE.test(email)) {
+      log('[DEVIS] Email invalide/absent apres saisie: "' + email + '"');
+      dialog.showMessageBoxSync({
+        type: 'warning',
+        title: 'Mon devis dentaire - Envoi de devis',
+        message: 'Adresse email invalide.',
+        detail: "Le devis n'a pas ete envoye : renseignez une adresse email valide.",
+        buttons: ['OK'],
+      });
+      return false;
+    }
+  } else {
+    log('[DEVIS] Email deja enregistre (' + email + ') -> envoi direct sans popup');
   }
 
-  const payload = {
-    devisData: {
+  // PDF OFFICIEL du devis Logos : Logos l'enregistre dans
+  // <patientsDir>\LIENS\<numero>\Devis-<devisId>*.pdf lors d'un Shift+clic sur
+  // l'imprimante (impression + sauvegarde). On le joint s'il est present ; sinon
+  // envoi sans PDF (non bloquant), et on le loggue pour diagnostic.
+  let pdfBase64, pdfFileName;
+  try {
+    const devisPdf = require('./logos-devis-pdf');
+    devisPdf.setLogger(log);
+    let found = devisPdf.findLatestDevisPdf(data.patientsDir, data.logosNumero, data.devisId);
+    // Filet de securite anti-course : si le PDF n'est pas encore la (Logos finit
+    // de l'ecrire), on patiente et on re-scanne AVANT d'envoyer -> on ne part
+    // jamais sans le PDF a cause d'un envoi trop tot.
+    for (let i = 0; i < 8 && !found; i++) {
+      await new Promise(r => setTimeout(r, 800));
+      found = devisPdf.findLatestDevisPdf(data.patientsDir, data.logosNumero, data.devisId);
+      if (found) log('[DEVIS] PDF disponible apres attente (~' + ((i + 1) * 800) + 'ms)');
+    }
+    if (found) {
+      pdfBase64 = found.base64;
+      pdfFileName = found.fileName;
+      log('[DEVIS] PDF officiel Logos joint: ' + found.fileName + ' (' + found.sizeKb + ' Ko)');
+    } else {
+      log('[DEVIS] Aucun PDF officiel Logos trouve apres attente -> envoi sans PDF');
+    }
+  } catch (ePdf) {
+    log('[DEVIS] Erreur lecture PDF devis (non bloquant): ' + ePdf.message);
+  }
+
+  // === PARSING CÔTÉ SERVEUR (principe : le connecteur est un RELAIS) ===
+  // On n'envoie PAS les actes lus en mémoire : on transmet le PDF officiel au
+  // parseur du serveur (helper fetchServerParsedDevis, profil "logosw"), et
+  // c'est SON résultat qui alimente l'espace patient — exactement comme la voie
+  // PEC et l'extension Chrome. Repli sur les actes locaux si le parseur échoue.
+  let devisData = null;
+  const parsed = await fetchServerParsedDevis(site, pdfBase64, pdfFileName);
+  if (parsed && Array.isArray(parsed.actes) && parsed.actes.length) {
+    devisData = {
+      devisRef: parsed.devisRef || (data.devisId != null ? String(data.devisId) : undefined),
+      dateDevis: parsed.dateDevis || undefined,
+      totalMontant: (typeof parsed.totalMontant === 'number') ? parsed.totalMontant : undefined,
+      actes: parsed.actes,
+      patient: {
+        nom: (parsed.patient && parsed.patient.nom) || data.nom || '',
+        prenom: (parsed.patient && parsed.patient.prenom) || data.prenom || '',
+        dateNaissance: (parsed.patient && parsed.patient.dateNaissance) || data.dateNaissance || '',
+        nir: (parsed.patient && parsed.patient.nir) || data.nir || '',
+      },
+    };
+  }
+  if (!devisData) {
+    devisData = {
       devisRef: data.devisId != null ? String(data.devisId) : undefined,
       totalMontant: total,
       actes,
@@ -727,15 +924,29 @@ async function sendDevisToPatient(data) {
         dateNaissance: data.dateNaissance || '',
         nir: data.nir || '',
       },
-    },
+    };
+  }
+
+  const payload = {
+    devisData,
     patient: {
       email,
       phone,
-      nom: data.nom || '',
-      prenom: data.prenom || '',
+      nom: (devisData.patient && devisData.patient.nom) || data.nom || '',
+      prenom: (devisData.patient && devisData.patient.prenom) || data.prenom || '',
       dateNaissance: data.dateNaissance || '',
     },
     channels: { email: true },
+    // Origine du devis : permet au retour du document signe de revenir dans
+    // le bon systeme (ici Logos) et le bon dossier (NUMERO).
+    source: {
+      system: data.sourceSystem || 'logos',
+      patientRef: (data.logosNumero != null) ? String(data.logosNumero) : '',
+      praticien: data.praticien || '',
+    },
+    // PDF officiel Logos (si Shift+clic imprimante a ete fait avant l'envoi).
+    pdfBase64,
+    pdfFileName,
   };
 
   log('[DEVIS] POST ' + site + '/api/devis/share (' + actes.length + ' actes, ' +
@@ -776,15 +987,46 @@ async function sendDevisToPatient(data) {
     }
 
     log('[DEVIS] Devis envoye OK - id=' + (json.devisId || '?') + ' url=' + (json.publicUrl || '?'));
-    dialog.showMessageBoxSync({
-      type: 'info',
-      title: 'Mon devis dentaire - Envoi de devis',
-      message: 'Devis envoye a ' + who + '.',
-      detail: email
-        ? ("Un email vient d'etre envoye a " + email + " avec le lien vers l'espace patient. Relance automatique chaque semaine sans reponse.")
-        : 'Le devis a ete enregistre.',
-      buttons: ['OK'],
-    });
+
+    // === JOURNAL LOGOS : trace l'envoi pour signature dans le dossier patient ===
+    // Ecrit une ligne cliquable "Devis pour un montant de XXX EUR envoye pour
+    // signature" (meme mecanisme que le retour des docs signes, via ACTES_2).
+    // ASCII UNIQUEMENT (pas d'accents) pour ne pas corrompre le champ EXTRA Logos.
+    // Non bloquant : un echec d'ecriture n'empeche pas l'envoi du devis.
+    if (pdfBase64 && data.logosNumero != null) {
+      try {
+        const logosWriter = require('./logos-devis-writer');
+        logosWriter.setLogger(log);
+        const buf = Buffer.from(pdfBase64, 'base64');
+        const ref = String(json.devisId || data.devisId || Date.now())
+          .replace(/[^a-zA-Z0-9._-]/g, '_')
+          .slice(0, 40);
+        const label = 'Devis pour un montant de ' + total.toFixed(2) + ' EUR envoye pour signature';
+        const rLog = await logosWriter.writeSignedDoc(
+          data.logosNumero, buf, `Devis-envoye-${ref}.pdf`, label, 'OS'
+        );
+        log('[DEVIS] Ligne Logos "envoye pour signature" ecrite (dossier ' +
+            data.logosNumero + ', cle=' + (rLog && rLog.cle) + ')');
+      } catch (eLog) {
+        log('[DEVIS] Ecriture ligne Logos (non bloquant) echouee: ' + eLog.message);
+      }
+    } else {
+      log('[DEVIS] Pas de PDF/numero Logos -> pas de ligne "envoye pour signature" ecrite');
+    }
+
+    // Popup de confirmation UNIQUEMENT quand on a du demander l'email (aucun email
+    // enregistre). Si l'email etait deja enregistre -> envoi silencieux.
+    if (!emailWasRegistered) {
+      dialog.showMessageBoxSync({
+        type: 'info',
+        title: 'Mon devis dentaire - Envoi de devis',
+        message: 'Devis envoye a ' + who + '.',
+        detail: email
+          ? ("Un email vient d'etre envoye a " + email + " avec le lien vers l'espace patient. Relance automatique chaque semaine sans reponse.")
+          : 'Le devis a ete enregistre.',
+        buttons: ['OK'],
+      });
+    }
     return true;
   } catch (e) {
     log('[DEVIS] Exception envoi: ' + e.message);
@@ -830,6 +1072,34 @@ function openConnectWindow() {
  */
 async function readAndOpenCabFlow(docName, intent) {
   const T0 = Date.now();
+
+  // ── Gating module (pec/devis) AVANT toute ouverture de MDD ──────────────────
+  // Le serveur bloque la SOUMISSION, mais pour la PEC l'ouverture du wizard se
+  // fait localement (le serveur n'est appelé qu'à la fin). On refuse donc
+  // d'ouvrir MDD ici si le module correspondant est désactivé pour le cabinet.
+  // État lu depuis config-manager (rafraîchi via /api/desktop/whoami). Absent =
+  // poste non appairé → fail-open (comportement historique).
+  const effIntent = (intent || 'pec') === 'devis' ? 'devis' : 'pec';
+  try {
+    const cm = require('./config-manager');
+    const modules = (cm.getConfig() || {}).modules || {};
+    if (modules[effIntent] === false) {
+      log('[CABFLOW] Module ' + effIntent + ' désactivé pour ce cabinet → ouverture MDD bloquée');
+      try {
+        const { Notification } = require('electron');
+        new Notification({
+          title: 'Mon devis dentaire',
+          body: effIntent === 'pec'
+            ? 'Le module « Prise en charge » est désactivé pour ce cabinet.'
+            : 'Le module « Devis » est désactivé pour ce cabinet.',
+        }).show();
+      } catch (eN) { /* notif best-effort */ }
+      return false;
+    }
+  } catch (eMod) {
+    log('[CABFLOW] Lecture module échouée (fail-open): ' + eMod.message);
+  }
+
   const cabflowPath = findCabFlowReader();
   if (!cabflowPath) {
     log('[CABFLOW] CabFlowReader.exe non trouve');
@@ -837,12 +1107,18 @@ async function readAndOpenCabFlow(docName, intent) {
   }
   log('[CABFLOW] Utilise: ' + cabflowPath);
 
-  // Tenter d'extraire un devisId depuis le nom du document
+  // docName = numero de dossier patient, lu par l'overlay dans le titre Logos
+  // "<NUMERO> - <NOM Prenom>". On le passe comme patientId (arg1) pour que
+  // CabFlowReader localise le dossier DIRECTEMENT, sans dependre de la cle
+  // PatientEnCours dans LOGOS_w.INI (qui n'est pas toujours ecrite -> echec).
   const args = [];
-  const devisMatch = (docName || '').match(/\b(\d{3,6})\b/);
-  if (devisMatch) {
-    log('[CABFLOW] DevisId detecte dans docName "' + docName + '": ' + devisMatch[1]);
-    args.push('0', devisMatch[1]); // arg1=patientId(auto), arg2=devisId
+  const numMatch = (docName || '').match(/\b(\d{3,6})\b/);
+  if (numMatch) {
+    log('[CABFLOW] Numero dossier detecte dans docName "' + docName + '": ' + numMatch[1]);
+    args.push(numMatch[1], numMatch[1]); // arg1=patientId(NUMERO du dossier), arg2=devis (fallback devis courant)
+  } else {
+    log('[CABFLOW] Aucun numero dans docName "' + docName + '" -> auto (INI)');
+    args.push('0', '0');
   }
 
   return new Promise((resolve) => {
@@ -885,6 +1161,11 @@ async function readAndOpenCabFlow(docName, intent) {
 
       try {
         const data = JSON.parse(stdout);
+        // Origine Logos : n° de dossier (NUMERO) pour que le document signe
+        // revienne dans CE dossier Logos (pivot du retour des docs signes).
+        data.sourceSystem = 'logos';
+        data.logosNumero = (mmoCtx.patientId != null) ? mmoCtx.patientId : null;
+        data.patientsDir = mmoCtx.patientsDir || null; // pour retrouver le PDF officiel Logos
         log('[CABFLOW] Patient: ' + data.nom + ' ' + data.prenom +
             ' | Devis: ' + data.devisId + ' | ' + (data.actes || []).length + ' actes' +
             ' | NIR: ' + (data.nir || 'ABSENT'));
@@ -998,16 +1279,128 @@ async function readAndOpenCabFlow(docName, intent) {
         // + relances hebdo), exactement comme l'extension Chrome. On N'OUVRE PAS
         // le wizard PEC : on poste le devis a /api/devis/share.
         if ((intent || 'pec') === 'devis') {
+          // Un seul clic "Envoi de devis" declenche TOUTE la chaine :
+          // 1) impression/enregistrement du PDF officiel Logos (Shift+clic
+          //    imprimante, automatise), 2) lecture du PDF, 3) envoi au patient.
+          // IMPORTANT : on masque l'overlay pendant l'impression, sinon il est
+          // pose PAR-DESSUS l'icone imprimante et intercepte le clic simule.
+          const overlayMod = require('./overlay-pec');
+          try {
+            overlayMod.setSuspended(true);
+            await new Promise(r => setTimeout(r, 250)); // laisse l'overlay disparaitre du hit-test
+            const printer = require('./logos-print-devis');
+            printer.setLogger(log);
+            await printer.printAndWaitPdf(data.patientsDir, data.logosNumero);
+          } catch (ePrint) {
+            log('[DEVIS] Impression auto du devis echouee (non bloquant): ' + ePrint.message);
+          } finally {
+            try { overlayMod.setSuspended(false); } catch (e) {}
+          }
           try { await sendDevisToPatient(data); }
           catch (eDevis) { log('[DEVIS] Erreur envoi devis: ' + eDevis.message); }
           resolve(true);
           return;
         }
 
-        const url = buildCabFlowUrl(data);
-        log('[CABFLOW] URL: ' + url.substring(0, 120) + '...');
-        openUrlInBrowser(url);
+        // === INTENT PEC — OUVERTURE INSTANTANÉE ===
+        // On ouvre MDD IMMÉDIATEMENT avec les données déjà lues en local sur Logos
+        // (patient + actes CabFlowReader), SANS attendre l'écriture du PDF ni le
+        // parseur serveur. On ne déclenche ici que le Shift+clic imprimante ; le
+        // PDF se génère ensuite tout seul et part au serveur EN TÂCHE DE FOND
+        // (boucle signature / réimportation, via logos_numero).
+        //
+        // ⚠️ Le Shift+clic EXIGE que Logos soit au premier plan : on le fait ICI,
+        // AVANT d'ouvrir le navigateur (qui volerait le focus), et on n'attend que
+        // le CLIC — pas le fichier.
+        //
+        // NB : le panier et le détail multi-matériaux proviennent du parseur
+        // serveur du PDF (colonnes non lues en local) ; à l'ouverture instantanée
+        // ils peuvent être vides/partiels et le praticien les complète. Le parse
+        // serveur continue en arrière-plan.
+        try {
+          const overlayMod = require('./overlay-pec');
+          try {
+            overlayMod.setSuspended(true);
+            await new Promise(r => setTimeout(r, 250)); // laisse l'overlay quitter le hit-test
+            const printer = require('./logos-print-devis');
+            printer.setLogger(log);
+            const clicked = await printer.shiftClickImprimer(); // CLIC SEUL — on n'attend PAS le PDF
+            if (clicked && clicked.ok) {
+              log('[PEC] Shift+clic imprimante OK — PDF en génération, ouverture immédiate de MDD');
+            } else {
+              log('[PEC] Shift+clic imprimante non effectué (' + ((clicked && clicked.reason) || '?') +
+                  ') — ouverture immédiate quand même');
+            }
+            // Court délai pour laisser Logos enregistrer l'impression AVANT que
+            // l'ouverture du navigateur ne prenne le focus. Ne bloque pas sur le PDF.
+            await new Promise(r => setTimeout(r, 200));
+          } catch (ePrint) {
+            log('[PEC] Impression auto échouée (non bloquant): ' + ePrint.message);
+          } finally {
+            try { overlayMod.setSuspended(false); } catch (e) {}
+          }
+        } catch (eOuter) {
+          log('[PEC] Bloc impression instant-open erreur (non bloquant): ' + eOuter.message);
+        }
+
+        // Ouverture IMMÉDIATE du wizard PEC depuis les données locales Logos
+        // (auto-login magic-link via /api/desktop/session, repli session sinon).
+        log('[CABFLOW] Ouverture INSTANTANÉE de l assistant PEC (données Logos locales)...');
+        await openPecWizard(data);
         resolve(true);
+
+        // === TÂCHE DE FOND (non bloquante) : dès que Logos a écrit le PDF officiel,
+        // on l'envoie au serveur pour la boucle signature / réimportation. Ceci
+        // n'affecte pas l'ouverture ci-dessus (déjà faite).
+        void (async () => {
+          try {
+            const site = CONFIG.siteUrl;
+            const devisPdf = require('./logos-devis-pdf');
+            devisPdf.setLogger(log);
+            let found = devisPdf.findLatestDevisPdf(data.patientsDir, data.logosNumero, data.devisId, true);
+            for (let i = 0; i < 30 && !found; i++) { // ~24 s max, en arrière-plan
+              await new Promise(r => setTimeout(r, 800));
+              found = devisPdf.findLatestDevisPdf(data.patientsDir, data.logosNumero, data.devisId, true);
+            }
+            if (!found) {
+              log('[PEC][bg] Aucun PDF officiel détecté — devis non transmis (impression manquée ?)');
+              return;
+            }
+            log('[PEC][bg] PDF officiel prêt: ' + found.fileName + ' (' + found.sizeKb + ' Ko) — transmission serveur');
+            // Transmet le PDF au serveur : (a) alimente le cache cotation → panier,
+            // (b) attache le devis à la PEC (par logos_numero) pour la SIGNATURE
+            // patient — sinon le devis d'une PEC ouverte depuis Logos n'aurait
+            // aucun PDF à signer. Repli sur le parseur seul si pas de clé API.
+            try {
+              const { getConfig } = require('./config-manager');
+              const apiKey = (getConfig() || {}).apiKey || '';
+              if (apiKey) {
+                const fetch = require('node-fetch');
+                const resp = await fetch(site + '/api/desktop/devis-pdf', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+                  body: JSON.stringify({
+                    logosNumero: (data.logosNumero != null ? String(data.logosNumero) : ''),
+                    pdfBase64: found.base64,
+                    pdfFileName: found.fileName,
+                    software: 'logosw',
+                  }),
+                });
+                const j = await resp.json().catch(() => ({}));
+                const etat = j && j.attached ? 'attaché au devis PEC (signable)'
+                  : (j && j.staged ? 'mis en attente (devis PEC pas encore créé)' : 'transmis');
+                log('[PEC][bg] PDF ' + etat + ' + table panier alimentée');
+              } else {
+                await fetchServerParsedDevis(site, found.base64, found.fileName);
+                log('[PEC][bg] Pas de clé API — PDF envoyé au parseur (panier) seulement');
+              }
+            } catch (eSend) {
+              log('[PEC][bg] Transmission PDF échouée (non bloquant): ' + eSend.message);
+            }
+          } catch (eBg) {
+            log('[PEC][bg] Tâche de fond PDF échouée (non bloquant): ' + eBg.message);
+          }
+        })();
       } catch (e) {
         log('[CABFLOW] JSON parse error: ' + e.message);
         log('[CABFLOW] Stdout brut: ' + stdout.substring(0, 200));
@@ -2729,6 +3122,29 @@ if (!gotTheLock) {
         log('[STARTUP] Dashboard initialise');
       } catch (e) {
         log('[STARTUP] Erreur init dashboard (non bloquant): ' + e.message);
+      }
+
+      // Retour des documents signes : re-ecrit devis + consentement signes dans
+      // le systeme d'origine (Logos). Poll MDD /api/desktop/signed-pending.
+      try {
+        const signedWatcher = require('./signed-docs-watcher');
+        signedWatcher.start(log);
+        global._signedDocsWatcher = signedWatcher;
+        log('[STARTUP] Watcher retour docs signes demarre');
+      } catch (eSw) {
+        log('[STARTUP] Watcher retour docs signes non demarre (non bloquant): ' + eSw.message);
+      }
+
+      // Trace Logos a l'envoi en signature : ecrit la ligne "PEC XX EUR RAC XX
+      // EUR envoye pour signature" dans le dossier Logos. Poll MDD
+      // /api/desktop/pec-line-pending.
+      try {
+        const pecLineWatcher = require('./pec-line-watcher');
+        pecLineWatcher.start(log);
+        global._pecLineWatcher = pecLineWatcher;
+        log('[STARTUP] Watcher ligne PEC signature demarre');
+      } catch (ePl) {
+        log('[STARTUP] Watcher ligne PEC non demarre (non bloquant): ' + ePl.message);
       }
 
       // [OPT v1.0.16] Modules legacy PecExpress Desktop desactives (pas d'imprimante en Mon devis dentaire Connecté)
