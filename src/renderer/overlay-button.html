@@ -5,6 +5,10 @@
   <title>Mon devis dentaire</title>
   <style>
     * { margin:0; padding:0; box-sizing:border-box; -webkit-user-select:none; user-select:none; }
+    /* ⚠️ NE PAS remettre `-webkit-app-region: drag` ici : la fenetre overlay est
+       `movable:false`, donc une zone de drag ne sert a RIEN et, sur un overlay
+       frameless transparent, elle AVALE les clics et le survol des boutons
+       (=> "les boutons ne reagissent plus au clic"). On garde tout no-drag. */
     html, body { height:100vh; width:100vw; background:transparent; overflow:hidden;
       font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,sans-serif; -webkit-app-region:no-drag; }
     .wrap { position:absolute; top:4px; right:4px; display:flex; gap:6px; -webkit-app-region:no-drag; }
@@ -23,15 +27,23 @@
     .wrap.loading .btn { pointer-events:none; opacity:.85; }
     .dot { width:7px; height:7px; border-radius:50%; background:rgba(255,255,255,.95);
       box-shadow:0 1px 2px rgba(0,0,0,.15); flex:none; }
+    /* Etat "Envoi en cours" : la pastille (.dot) devient un petit spinner qui
+       tourne, et le libelle passe a "Envoi en cours...". Meme logique visuelle
+       que le bouton questionnaire. */
+    .btn.sending { opacity:1 !important; }
+    .btn.sending .dot { width:11px; height:11px; background:transparent;
+      border:2px solid rgba(255,255,255,.45); border-top-color:#fff; box-shadow:none;
+      animation:spin .6s linear infinite; }
+    @keyframes spin { to { transform:rotate(360deg); } }
   </style>
 </head>
 <body>
   <div class="wrap disabled" id="wrap">
     <button class="btn pec" id="btn-pec" title="Creer une demande de prise en charge">
-      <span class="dot"></span><span>Demande de PEC</span>
+      <span class="dot"></span><span class="lbl">Demande de PEC</span>
     </button>
     <button class="btn devis" id="btn-devis" title="Envoyer le devis au patient">
-      <span class="dot"></span><span>Envoi de devis</span>
+      <span class="dot"></span><span class="lbl">Envoi de devis</span>
     </button>
   </div>
   <script>
@@ -49,27 +61,6 @@
       // Un seul module actif => un seul bouton (declenche directement son wf).
       // Aucun module actif => rien.
       wrap.style.display = (!pecOn && !devOn) ? 'none' : 'flex';
-      reportHotRect();
-    }
-
-    // Rapporte au main la zone cliquable (union des boutons visibles), en px CSS
-    // relatifs a la fenetre. Le main s'en sert pour pre-armer la capture souris
-    // (poll du curseur) -> le 1er clic est pris en compte. requestAnimationFrame
-    // garantit que le layout est a jour avant de mesurer.
-    function reportHotRect() {
-      requestAnimationFrame(() => {
-        try {
-          if (!window.cabflow || !window.cabflow.setOverlayHotRect) return;
-          const btns = [bPec, bDev].filter((b) => !b.hidden && b.offsetParent !== null);
-          if (!btns.length) { window.cabflow.setOverlayHotRect(null); return; }
-          const rects = btns.map((b) => b.getBoundingClientRect());
-          const x = Math.min(...rects.map((r) => r.left));
-          const y = Math.min(...rects.map((r) => r.top));
-          const right = Math.max(...rects.map((r) => r.right));
-          const bottom = Math.max(...rects.map((r) => r.bottom));
-          window.cabflow.setOverlayHotRect({ x, y, w: right - x, h: bottom - y });
-        } catch (e) {}
-      });
     }
     async function loadModules() {
       try {
@@ -82,24 +73,52 @@
     }
     loadModules();
 
-    async function fire(intent) {
+    async function fire(intent, btn) {
       if (wrap.classList.contains('disabled') || wrap.classList.contains('loading')) return;
       wrap.classList.add('loading');
+      // Feedback "Envoi en cours..." sur la pastille cliquee (spinner + libelle).
+      const label = btn && btn.querySelector('.lbl');
+      const original = label ? label.textContent : '';
+      if (btn) btn.classList.add('sending');
+      if (label) label.textContent = 'Envoi en cours…';
+      const startedAt = Date.now();
       try { await window.cabflow.lancerPec(intent); }
       catch (e) { console.error('overlay error', e); }
-      finally { setTimeout(() => wrap.classList.remove('loading'), 1500); }
+      finally {
+        // On garde le feedback visible au moins 900 ms, meme si l'ouverture est
+        // quasi instantanee, pour que l'utilisateur le voie bien.
+        const wait = Math.max(0, 900 - (Date.now() - startedAt));
+        setTimeout(() => {
+          if (btn) btn.classList.remove('sending');
+          if (label) label.textContent = original;
+          wrap.classList.remove('loading');
+        }, wait);
+      }
     }
-    bPec.addEventListener('click', () => fire('pec'));
-    bDev.addEventListener('click', () => fire('devis'));
+    bPec.addEventListener('click', () => fire('pec', bPec));
+    bDev.addEventListener('click', () => fire('devis', bDev));
 
-    // Click-through : la fenetre overlay est traversante par defaut (les icones
-    // de Logos dessous restent cliquables a tout moment). La capture souris est
-    // desormais pilotee par le MAIN PROCESS (poll du curseur, cf. overlay-pec.js
-    // startCursorPoll), qui l'active AVANT le clic des que le curseur entre dans
-    // la zone des boutons -> plus de "1er clic ignore". On ne fait donc plus de
-    // bascule reactive sur mouseenter/mouseleave ici (elle arrivait trop tard).
-    // On rapporte simplement la geometrie des boutons au main.
-    window.addEventListener('resize', reportHotRect);
+    // ── Click-through robuste (corrige le "1er clic ignore") ──────────────────
+    // La fenetre overlay est TRAVERSANTE par defaut : les icones de Logos situees
+    // dessous restent cliquables. On ne capte la souris que lorsque le curseur
+    // survole les pastilles.
+    //   ⚠️ NE PAS revenir a `-webkit-app-region: drag` (ancien contournement) :
+    //   ca avalait les clics. Ici on desactive l'ignore souris sur `mousemove`
+    //   (et non `mouseenter`) : `forward:true` nous envoie les mousemove en
+    //   continu meme en mode ignore, donc l'etat "cliquable" est actif BIEN
+    //   AVANT le clic -> le 1er clic fonctionne, plus besoin de double-cliquer.
+    function setIgnore(ignore) {
+      try { window.cabflow && window.cabflow.setMouseIgnore && window.cabflow.setMouseIgnore(ignore); } catch (e) {}
+    }
+    let _capturing = true; // force le 1er appel ci-dessous
+    function capture(on) {
+      if (on === _capturing) return;
+      _capturing = on;
+      setIgnore(!on);
+    }
+    wrap.addEventListener('mousemove', () => capture(true));
+    wrap.addEventListener('mouseleave', () => capture(false));
+    capture(false); // etat initial : traversant
 
     if (window.cabflow && window.cabflow.onOverlayInfo) {
       window.cabflow.onOverlayInfo((data) => {
@@ -113,8 +132,6 @@
         } else {
           wrap.classList.add('disabled');
         }
-        // La visibilite/geometrie des boutons a pu changer -> re-mesurer.
-        reportHotRect();
       });
     }
   </script>

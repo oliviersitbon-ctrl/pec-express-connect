@@ -775,6 +775,7 @@ async function sendQuestionnaireToTablet(fiche) {
     if (!apiKey) return { ok: false, error: 'poste non appaire' };
     const nom = (fiche && fiche.nom || '').trim();
     const prenom = (fiche && fiche.prenom || '').trim();
+    const numero = (fiche && fiche.numero != null) ? String(fiche.numero).trim() : '';
     if (!nom) return { ok: false, error: 'nom patient manquant' };
 
     // DDN (+ email) depuis la RAM de la fiche patient.
@@ -794,7 +795,13 @@ async function sendQuestionnaireToTablet(fiche) {
     const res = await fetch(CONFIG.siteUrl + '/api/questionnaire/enqueue', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
-      body: JSON.stringify({ patient: { nom, prenom, dateNaissance: dob, email } }),
+      // source_system='logos' + n° dossier LogosW => le questionnaire rempli
+      // sera réinjecté dans CE dossier Logos (questionnaire-watcher).
+      body: JSON.stringify({
+        patient: { nom, prenom, dateNaissance: dob, email },
+        sourceSystem: 'logos',
+        sourcePatientRef: numero || null,
+      }),
     });
     const json = await res.json().catch(() => ({}));
     if (!res.ok || !json.ok) {
@@ -3173,6 +3180,17 @@ if (!gotTheLock) {
         log('[STARTUP] Watcher retour docs signes demarre');
       } catch (eSw) {
         log('[STARTUP] Watcher retour docs signes non demarre (non bloquant): ' + eSw.message);
+      }
+
+      // Retour des QUESTIONNAIRES remplis : réinjecte le PDF du questionnaire
+      // dans le dossier LogosW d'origine. Poll MDD /api/desktop/questionnaire-pending.
+      try {
+        const qWatcher = require('./questionnaire-watcher');
+        qWatcher.start(log);
+        global._questionnaireWatcher = qWatcher;
+        log('[STARTUP] Watcher retour questionnaires demarre');
+      } catch (eQw) {
+        log('[STARTUP] Watcher retour questionnaires non demarre (non bloquant): ' + eQw.message);
       }
 
       // Trace Logos a l'envoi en signature : ecrit la ligne "PEC XX EUR RAC XX
