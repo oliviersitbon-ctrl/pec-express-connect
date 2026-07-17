@@ -196,6 +196,28 @@ if (-not $patientA) {
 $fgId = $fg.ToInt64()
 $devisFocused = ($fgId -eq $devisB.HWnd)
 
+# Localiser le bouton "Imprimer" DANS la fenetre devis (coords ECRAN) pour ancrer
+# l'overlay juste dessous (sous le petit separateur sous l'imprimante).
+$printer = $null
+$cbP = [LD+EnumProc]{ param($h, $l)
+    if ($script:printer) { return $true }
+    if ([LD]::IsWindowVisible($h)) {
+        $cls = New-Object System.Text.StringBuilder(64)
+        [LD]::GetClassName($h, $cls, 64) | Out-Null
+        if ($cls.ToString() -match "Button") {
+            $sb = New-Object System.Text.StringBuilder(128)
+            [LD]::GetWindowText($h, $sb, 128) | Out-Null
+            if ($sb.ToString() -match "Imprimer") {
+                $pr = New-Object LD+RECT
+                [LD]::GetWindowRect($h, [ref]$pr) | Out-Null
+                $script:printer = [PSCustomObject]@{ L = $pr.Left; T = $pr.Top; R = $pr.Right; B = $pr.Bottom }
+            }
+        }
+    }
+    return $true
+}
+[LD]::EnumChildWindows([IntPtr]$devisB.HWnd, $cbP, [IntPtr]::Zero) | Out-Null
+
 # Recuperer aussi la position de la fenetre patient A (= fenetre Logos visible)
 # pour pouvoir positionner le bouton overlay relatif a Logos
 $result = @{
@@ -207,6 +229,10 @@ $result = @{
     markers = $devisB.MarkersFound
     foregroundHwnd = $fgId
     devisFocused = $devisFocused
+    printerLeft = if ($printer) { $printer.L } else { $null }
+    printerTop = if ($printer) { $printer.T } else { $null }
+    printerRight = if ($printer) { $printer.R } else { $null }
+    printerBottom = if ($printer) { $printer.B } else { $null }
     logosLeft = $patientA.Left
     logosTop = $patientA.Top
     logosWidth = $patientA.W

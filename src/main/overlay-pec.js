@@ -87,11 +87,24 @@ function createOverlay() {
  * les coordonnees actuelles de Logos. Pas de SetParent (qui casse le rendu
  * Electron transparent), mais re-positionnement frequent via WinEvent.
  */
+// Espace sous le bouton imprimante : on descend l'overlay SOUS le petit
+// separateur horizontal qui suit l'imprimante (au lieu de la barre de titre).
+const PRINTER_GAP_BELOW = 12;
+
 function positionOverlayAbsolute(logos) {
   if (!_overlayWin || _overlayWin.isDestroyed()) return;
   if (!logos || typeof logos.logosLeft !== 'number') return;
-  const x = logos.logosLeft + logos.logosWidth - OVERLAY_WIDTH - 6;
-  const y = logos.logosTop + 44;
+  let x, y;
+  if (typeof logos.printerBottom === 'number' && typeof logos.printerRight === 'number') {
+    // Ancrage sous l'imprimante : bord droit de l'overlay aligne sur le bord
+    // droit du bouton imprimante, juste sous le separateur.
+    y = logos.printerBottom + PRINTER_GAP_BELOW;
+    x = logos.printerRight - OVERLAY_WIDTH;
+  } else {
+    // Repli si l'imprimante n'a pas ete localisee : ancien coin haut-droit.
+    x = logos.logosLeft + logos.logosWidth - OVERLAY_WIDTH - 6;
+    y = logos.logosTop + 44;
+  }
   try {
     _overlayWin.setBounds({ x, y, width: OVERLAY_WIDTH, height: OVERLAY_HEIGHT });
   } catch (e) {}
