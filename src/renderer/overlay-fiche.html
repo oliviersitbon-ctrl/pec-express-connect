@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Questionnaire MD</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; -webkit-user-select:none; user-select:none; }
+    html, body { height:100vh; width:100vw; background:transparent; overflow:hidden;
+      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,sans-serif; }
+    .wrap { position:absolute; top:0; right:2px; height:30px; display:flex; align-items:center; }
+    .btn { display:flex; align-items:center; gap:6px; padding:4px 12px; color:#fff; font-size:11.5px;
+      font-weight:600; border:none; border-radius:6px; height:26px; cursor:pointer; white-space:nowrap;
+      letter-spacing:.2px; transition:transform .12s ease, box-shadow .12s ease, opacity .2s;
+      background:linear-gradient(135deg,#0E3A4A 0%,#2D8A87 100%);
+      box-shadow:0 4px 14px rgba(45,138,135,.4), inset 0 1px 0 rgba(255,255,255,.25); }
+    .btn:hover { transform:translateY(-1px) scale(1.02); }
+    .btn:active { transform:translateY(0) scale(.98); }
+    .wrap.loading .btn { pointer-events:none; opacity:.85; }
+    .wrap.ok .btn { background:linear-gradient(135deg,#0f766e,#16a34a); }
+    .wrap.err .btn { background:linear-gradient(135deg,#b91c1c,#ef4444); }
+    .dot { width:7px; height:7px; border-radius:50%; background:rgba(255,255,255,.95);
+      box-shadow:0 1px 2px rgba(0,0,0,.15); flex:none; }
+  </style>
+</head>
+<body>
+  <div class="wrap" id="wrap">
+    <button class="btn" id="btn" title="Envoyer le questionnaire medical sur la tablette">
+      <span class="dot"></span><span id="lbl">Questionnaire MD</span>
+    </button>
+  </div>
+  <script>
+    const wrap = document.getElementById('wrap');
+    const btn = document.getElementById('btn');
+    const lbl = document.getElementById('lbl');
+    let patientName = 'ce patient';
+
+    function flash(cls, text, revertMs) {
+      wrap.classList.remove('loading', 'ok', 'err');
+      if (cls) wrap.classList.add(cls);
+      lbl.textContent = text;
+      if (revertMs) setTimeout(() => {
+        wrap.classList.remove('ok', 'err', 'loading');
+        lbl.textContent = 'Questionnaire MD';
+      }, revertMs);
+    }
+
+    async function send() {
+      if (wrap.classList.contains('loading')) return;
+      flash('loading', 'Envoi…');
+      try {
+        const res = await window.cabflow.sendQuestionnaire();
+        if (res && res.ok) flash('ok', '✓ Envoyé', 2500);
+        else flash('err', 'Échec', 3000);
+      } catch (e) {
+        flash('err', 'Échec', 3000);
+      }
+    }
+    btn.addEventListener('click', send);
+
+    // Click-through : traversant par defaut, capture au survol du bouton.
+    function setIgnore(ignore) {
+      try { window.cabflow && window.cabflow.setMouseIgnoreFiche && window.cabflow.setMouseIgnoreFiche(ignore); } catch (e) {}
+    }
+    wrap.addEventListener('mouseenter', () => setIgnore(false));
+    wrap.addEventListener('mouseleave', () => setIgnore(true));
+    setIgnore(true);
+
+    if (window.cabflow && window.cabflow.onFicheInfo) {
+      window.cabflow.onFicheInfo((data) => {
+        if (data && data.patient) {
+          patientName = data.patient;
+          btn.title = 'Envoyer le questionnaire medical a ' + patientName + ' (tablette)';
+        }
+      });
+    }
+  </script>
+</body>
+</html>

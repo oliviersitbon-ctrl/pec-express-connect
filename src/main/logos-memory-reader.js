@@ -108,6 +108,66 @@ async function readPatientEmail(opts = {}) {
   });
 }
 
+/**
+ * Lit l'IDENTITE du patient (date de naissance + email) depuis la RAM de
+ * LOGOS_w lorsque la FICHE PATIENT (Etat civil) est ouverte. Ancre sur le nom
+ * de famille (comme readPatientEmail). Sert au bouton "Questionnaire MD".
+ *
+ * @param {Object} opts
+ * @param {string} opts.nom - nom de famille (ancre, requis)
+ * @param {string} [opts.excludeDomain] - domaine email a exclure (cabinet)
+ * @returns {Promise<{dob:string|null, nir:string|null, email:string|null}|null>}
+ *          dob au format DD/MM/YYYY.
+ */
+async function readPatientIdentity(opts = {}) {
+  const nom = (opts.nom || '').trim();
+  if (!nom) { log('readPatientIdentity: nom manquant'); return null; }
+  const scriptPath = findWinScript('read-logos-patient.ps1');
+  if (!scriptPath) { log('read-logos-patient.ps1 introuvable'); return null; }
+
+  const outPath = path.join(os.tmpdir(), `logos-patient-${Date.now()}.json`);
+  const args = [
+    '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+    '-File', scriptPath,
+    '-Nom', nom,
+    '-OutputFile', outPath,
+  ];
+  if (opts.excludeDomain) args.push('-ExcludeDomain', String(opts.excludeDomain));
+
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (val) => {
+      if (done) return;
+      done = true;
+      try { fs.existsSync(outPath) && fs.unlinkSync(outPath); } catch (e) {}
+      resolve(val);
+    };
+    let proc;
+    try {
+      proc = spawn('powershell.exe', args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    } catch (e) { log('readPatientIdentity spawn error: ' + e.message); return finish(null); }
+    let stdout = '';
+    proc.stdout.on('data', (d) => { stdout += d.toString('utf8'); });
+    proc.on('error', (e) => { log('readPatientIdentity error: ' + e.message); finish(null); });
+    proc.on('close', () => {
+      let json = null;
+      try {
+        let raw = '';
+        if (fs.existsSync(outPath)) raw = fs.readFileSync(outPath, 'utf8').trim();
+        if (!raw && stdout) {
+          const m = stdout.match(/\{[^}]*\}/);
+          if (m) raw = m[0];
+        }
+        if (raw) json = JSON.parse(raw);
+      } catch (e) { log('readPatientIdentity parse error: ' + e.message); }
+      const out = json ? { dob: json.dob || null, nir: json.nir || null, email: json.email || null } : null;
+      log('readPatientIdentity("' + nom + '") -> dob=' + (out && out.dob ? out.dob : 'null'));
+      finish(out);
+    });
+    setTimeout(() => { try { proc && proc.kill(); } catch (e) {} finish(null); }, 9000);
+  });
+}
+
 // Script PS qui ouvre LOGOS_w.exe, cherche "honorairesG=" et dump le XML
 // autour (8000 bytes avant + 16000 apres pour avoir le devis complet).
 const PS_READER_INLINE = String.raw`
@@ -377,4 +437,4 @@ function formatDate(d) {
   return `${d.substring(6,8)}/${d.substring(4,6)}/${d.substring(0,4)}`;
 }
 
-module.exports = { setLogger, readCurrentDevis, parseDevisXml, readPatientEmail };
+module.exports = { setLogger, readCurrentDevis, parseDevisXml, readPatientEmail, readPatientIdentity };

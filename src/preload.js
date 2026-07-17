@@ -28,9 +28,16 @@ contextBridge.exposeInMainWorld('cabflow', {
   lancerPec: (intent) => ipcRenderer.invoke('overlay-lancer-pec', intent),
   pairConnect: (key) => ipcRenderer.invoke('desktop-pair', key),
   getModules: () => ipcRenderer.invoke('get-modules'),
+  // Overlay "Questionnaire MD" (page fiche patient / Etat civil)
+  sendQuestionnaire: () => ipcRenderer.invoke('overlay-questionnaire-send'),
+  onFicheInfo: (cb) => ipcRenderer.on('fiche-info', (e, data) => cb(data)),
+  setMouseIgnoreFiche: (ignore) => ipcRenderer.send('overlay-fiche-set-ignore', ignore),
   devisEmailGet: () => ipcRenderer.invoke('devis-email-get'),
   devisEmailSubmit: (payload) => ipcRenderer.send('devis-email-submit', payload),
   onOverlayInfo: (cb) => ipcRenderer.on('overlay-info', (e, data) => cb(data)),
+  // Overlay click-through: true = traversant (icones Logos cliquables dessous),
+  // false = capture (curseur sur les pastilles).
+  setMouseIgnore: (ignore) => ipcRenderer.send('overlay-set-ignore', ignore),
 
   // Status
   getStatus: () => {
