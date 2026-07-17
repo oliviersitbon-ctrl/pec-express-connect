@@ -31,14 +31,15 @@ let _currentDevisInfo = null;
 let _detectionInflight = false;
 let _attachedParentHwnd = null; // HWND du parent Logos auquel on est attache
 let _suspended = false; // quand true: overlay masque + detection en pause (ex: pendant l'impression auto)
-
-// --- Capture souris pre-armee (fin du "1er clic ignore, 2e clic OK") ---
-let _hotRect = null;          // { x, y, w, h } px CSS relatifs a la fenetre (union des boutons visibles)
-let _cursorPollTimer = null;  // interval de surveillance du curseur
-let _lastIgnore = null;       // dernier etat applique (evite les appels redondants)
+let _pollTimer = null; // revérification periodique (filet de securite du hook foreground)
 
 const OVERLAY_WIDTH = 300;
 const OVERLAY_HEIGHT = 32;
+// Le hook foreground ne se declenche PAS quand on change de page A L'INTERIEUR
+// de Logos (la fenetre top-level ne change pas). On re-verifie donc l'etat a
+// intervalle regulier pour masquer l'overlay des qu'on quitte la page Devis
+// (et pour le faire disparaitre proprement si Logos se ferme sans event final).
+const POLL_MS = 1500;
 
 /**
  * Cree la fenetre overlay (cachee au demarrage).
@@ -86,19 +87,54 @@ function createOverlay() {
  * les coordonnees actuelles de Logos. Pas de SetParent (qui casse le rendu
  * Electron transparent), mais re-positionnement frequent via WinEvent.
  */
+// Ecart vertical sous la ligne de la rangee "Ajouter alternative / Creer
+// alternative / Eclater le devis / Voir les a faire". Le bas du bouton "Eclater
+// le devis" coincide avec ce trait -> 0 = bord SUPERIEUR de l'overlay pile sur
+// la ligne (colle dessous). Ajustable si besoin (valeur positive = plus bas).
+const ROW_GAP_BELOW = 0;
+const PRINTER_GAP_BELOW = 12; // repli : sous l'imprimante
+const RIGHT_MARGIN = 8;       // marge par rapport au bord droit de la fenetre
+
+/**
+ * Convertit un point en pixels PHYSIQUES ecran vers des pixels LOGIQUES (DIP),
+ * pour que le positionnement reste correct meme quand Windows est en mise a
+ * l'echelle 125%/150% (setBounds attend des DIP, GetWindowRect renvoie du
+ * physique). En 100% ou si l'API n'existe pas -> identite.
+ */
+function toDip(pt) {
+  try {
+    if (screen && typeof screen.screenToDipPoint === 'function') {
+      return screen.screenToDipPoint(pt);
+    }
+  } catch (e) {}
+  return pt;
+}
+
 function positionOverlayAbsolute(logos) {
   if (!_overlayWin || _overlayWin.isDestroyed()) return;
   if (!logos || typeof logos.logosLeft !== 'number') return;
-  const x = logos.logosLeft + logos.logosWidth - OVERLAY_WIDTH - 6;
-  // Ancre verticale : JUSTE SOUS la rangee "Ajouter alternative / Eclater le
-  // devis / Voir les a faire" quand le detecteur la fournit ; sinon repli sur le
-  // haut de la fenetre (+44). Evite les pastilles sur la barre d'icones du haut.
-  let y;
-  if (typeof logos.rowBottom === 'number' && logos.rowBottom > logos.logosTop) {
-    y = logos.rowBottom + 2;
+
+  // Bord droit de reference = bord droit de la fenetre devis (coords physiques).
+  const rightEdgePhysical = logos.logosLeft + logos.logosWidth - RIGHT_MARGIN;
+
+  // Ancre verticale, par ordre de preference :
+  //  1) sous la rangee "Eclater le devis..." (cible demandee)
+  //  2) repli : sous l'imprimante
+  //  3) repli : ancien coin haut-droit
+  let topPhysical;
+  if (typeof logos.rowBottom === 'number') {
+    topPhysical = logos.rowBottom + ROW_GAP_BELOW;
+  } else if (typeof logos.printerBottom === 'number') {
+    topPhysical = logos.printerBottom + PRINTER_GAP_BELOW;
   } else {
-    y = logos.logosTop + 44;
+    topPhysical = logos.logosTop + 44;
   }
+
+  // Physique -> logique, PUIS on applique la largeur (deja en DIP) pour aligner
+  // le bord droit de l'overlay sur le bord droit de la fenetre.
+  const dip = toDip({ x: Math.round(rightEdgePhysical), y: Math.round(topPhysical) });
+  const x = Math.round(dip.x - OVERLAY_WIDTH);
+  const y = Math.round(dip.y);
   try {
     _overlayWin.setBounds({ x, y, width: OVERLAY_WIDTH, height: OVERLAY_HEIGHT });
   } catch (e) {}
@@ -124,49 +160,6 @@ function hideOverlay() {
   }
 }
 
-/** Applique l'etat click-through (dedup pour ne pas spammer l'API Windows). */
-function applyIgnore(ignore) {
-  if (!_overlayWin || _overlayWin.isDestroyed()) return;
-  if (_lastIgnore === ignore) return;
-  _lastIgnore = ignore;
-  try { _overlayWin.setIgnoreMouseEvents(ignore, { forward: true }); } catch (e) {}
-}
-
-/** Le curseur est-il au-dessus de la zone cliquable (union des boutons) ? */
-function cursorOverHotZone() {
-  if (!_overlayWin || _overlayWin.isDestroyed() || !_overlayWin.isVisible()) return false;
-  let pt, b;
-  try { pt = screen.getCursorScreenPoint(); b = _overlayWin.getBounds(); } catch (e) { return false; }
-  const r = _hotRect || { x: 0, y: 0, w: b.width, h: b.height };
-  const pad = 2;
-  return (
-    pt.x >= b.x + r.x - pad &&
-    pt.x <= b.x + r.x + r.w + pad &&
-    pt.y >= b.y + r.y - pad &&
-    pt.y <= b.y + r.y + r.h + pad
-  );
-}
-
-/**
- * Surveille le curseur ~33x/s et pre-arme la capture souris AVANT le clic ->
- * le 1er clic est pris en compte. Cout negligeable.
- */
-function startCursorPoll() {
-  if (_cursorPollTimer) return;
-  _cursorPollTimer = setInterval(() => {
-    if (!_overlayWin || _overlayWin.isDestroyed() || !_overlayWin.isVisible() || _suspended) {
-      applyIgnore(true);
-      return;
-    }
-    const enabled = !!_currentDevisInfo;
-    applyIgnore(enabled ? !cursorOverHotZone() : true);
-  }, 30);
-}
-
-function stopCursorPoll() {
-  if (_cursorPollTimer) { clearInterval(_cursorPollTimer); _cursorPollTimer = null; }
-}
-
 /**
  * Envoie infos patient/devis au renderer overlay pour affichage
  */
@@ -188,28 +181,29 @@ async function refreshDevisDetection() {
   try {
     const r = await detectDevisPage();
 
-    if (r.reason === 'logos-not-running') {
-      // Logos n'est pas en avant -> cacher completement
-      log(`Logos = absent | raison=${r.reason}`);
+    // REGLE UNIQUE D'AFFICHAGE : l'overlay n'apparait QUE lorsqu'on est
+    // reellement sur la page Devis de Logos (r.active === true).
+    // Tous les autres cas -> masquage complet :
+    //   - logos-not-running    : Logos ferme
+    //   - logos-not-foreground : Logos ouvert mais une autre appli est devant
+    //   - no-devis-window      : Logos devant mais autre page (fiche, schema, actes...)
+    //   - busy/timeout/parse-error/... : etat transitoire -> on masque par securite
+    // => plus de "boutons gris" fantomes hors page devis ou Logos ferme.
+    if (!r || !r.active || r.devisFocused === false) {
+      if (r && r.active && r.devisFocused === false) {
+        log('Overlay masque : fenetre Devis ouverte mais pas au premier plan (focus ailleurs)');
+      } else if (r && r.reason && r.reason !== 'busy') {
+        log(`Overlay masque (pas page Devis) | raison=${r.reason}`);
+      }
       _currentDevisInfo = null;
       hideOverlay();
       return;
     }
 
-    // N'AFFICHER l'overlay QUE lorsque l'EDITEUR DE DEVIS est reellement au
-    // premier plan (r.devisFocused). Sinon (Etat civil / schema / actes, devis en
-    // arriere-plan) -> on CACHE (fin de la regression "boutons hors page devis").
-    if (!(r.active && r.devisFocused && r.devisId && r.patient)) {
-      log(`Pas sur l'editeur de devis -> OVERLAY CACHE | active=${r.active} focused=${r.devisFocused} raison=${r.reason || ''}`);
-      _currentDevisInfo = null;
-      hideOverlay();
-      return;
-    }
-
-    // Editeur de devis au premier plan -> positionner + afficher.
+    // On est bien sur la page Devis ET elle est au premier plan -> afficher.
     showOverlay(r);
 
-    if (r.active && r.devisId && r.patient) {
+    if (r.devisId && r.patient) {
       // Page Devis detectee, verifier que le devis a des actes en RAM
       // IMPORTANT: filtrer par nom patient pour eviter de lire un vieux devis cache
       let hasActes = false;
@@ -250,9 +244,11 @@ async function refreshDevisDetection() {
         updateOverlayInfo({ enabled: false, reason: 'Devis vide' });
       }
     } else {
-      log(`Logos foreground mais pas page Devis -> BOUTON GRISE | raison=${r.reason || 'unknown'}`);
+      // Sur la page Devis mais patient/devis non encore identifie -> bouton grise
+      // (affiche, car on EST bien sur la page devis, mais non actionnable).
+      log(`Logos page Devis = OUI mais patient non identifie -> BOUTON GRISE | raison=${r.reason || 'no-patient'}`);
       _currentDevisInfo = null;
-      updateOverlayInfo({ enabled: false, reason: 'Pas sur page Devis' });
+      updateOverlayInfo({ enabled: false, reason: 'Devis' });
     }
   } catch (e) {
     log('refreshDevisDetection erreur: ' + e.message);
@@ -351,6 +347,26 @@ function stopWatcher() {
 }
 
 /**
+ * Filet de securite : re-verifie l'etat Logos a intervalle regulier, en plus
+ * du hook foreground evenementiel. Necessaire car passer de la page Devis a une
+ * autre page DANS Logos ne change pas la fenetre top-level -> aucun event
+ * foreground -> sans ce poll, l'overlay resterait affiche hors page Devis.
+ * Les gardes _detectionInflight / _detectorBusy evitent tout empilement.
+ */
+function startPoll() {
+  if (_pollTimer) return;
+  _pollTimer = setInterval(() => {
+    if (_suspended) return;
+    refreshDevisDetection();
+  }, POLL_MS);
+  log('Poll de securite overlay demarre (' + POLL_MS + 'ms)');
+}
+
+function stopPoll() {
+  if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+}
+
+/**
  * Handler IPC: appele quand l'utilisateur clique sur "Lancer la PEC"
  */
 function setupIpcHandlers() {
@@ -358,16 +374,8 @@ function setupIpcHandlers() {
   // renderer. Quand le curseur quitte les boutons -> ignore=true (traversant)
   // -> les icones Logos dessous redeviennent cliquables.
   ipcMain.on('overlay-set-ignore', (event, ignore) => {
-    // La source de verite est desormais le poll curseur (startCursorPoll).
-    applyIgnore(!!ignore);
-  });
-
-  // Rectangle chaud (union des boutons visibles) rapporte par le renderer.
-  ipcMain.on('overlay-hot-rect', (event, rect) => {
-    if (rect && typeof rect.x === 'number' && typeof rect.w === 'number' && rect.w > 0 && rect.h > 0) {
-      _hotRect = { x: rect.x, y: rect.y, w: rect.w, h: rect.h };
-    } else {
-      _hotRect = null;
+    if (_overlayWin && !_overlayWin.isDestroyed()) {
+      try { _overlayWin.setIgnoreMouseEvents(!!ignore, { forward: true }); } catch (e) {}
     }
   });
 
@@ -423,7 +431,7 @@ function startOverlay(onLancerPec) {
   createOverlay();
   setupIpcHandlers();
   startWatcher();
-  startCursorPoll(); // pre-arme la capture souris (fin du double-clic)
+  startPoll();
 }
 
 /**
@@ -431,7 +439,7 @@ function startOverlay(onLancerPec) {
  */
 function stopOverlay() {
   stopWatcher();
-  stopCursorPoll();
+  stopPoll();
   if (_overlayWin && !_overlayWin.isDestroyed()) {
     _overlayWin.destroy();
     _overlayWin = null;
