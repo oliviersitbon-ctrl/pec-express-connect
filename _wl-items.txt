@@ -1,0 +1,2 @@
+HDeclareExternal ECHEC : You are using the Express Version.
+The Express Version does not allow you to handle files containing so many items and/or keys. To handle complex files, use the Commercial Version.

@@ -1,0 +1,21 @@
+﻿=== Fichiers .WDD / .WDA trouves ===
+  C:\wlogos1\LOGOSWS1.WDD  (328823 o)
+     debut: 18 00 02 05 1c 00 00 00 01 00 7c 01 00 00 7a 00 | ..........|...z.
+  C:\wlogos1\SESAME.WDD  (39706 o)
+     debut: 18 00 02 05 1c 00 00 00 01 00 7c 01 00 00 08 00 | ..........|.....
+=== CabFlowReader / *.exe du connecteur ===
+  C:\Users\Utilisateur\Desktop\pec-express-connect\node_modules\7zip-bin\win\arm64\7za.exe
+  C:\Users\Utilisateur\Desktop\pec-express-connect\node_modules\7zip-bin\win\ia32\7za.exe
+  C:\Users\Utilisateur\Desktop\pec-express-connect\node_modules\7zip-bin\win\x64\7za.exe
+  C:\Users\Utilisateur\Desktop\pec-express-connect\node_modules\app-builder-bin\win\arm64\app-builder.exe
+  C:\Users\Utilisateur\Desktop\pec-express-connect\node_modules\app-builder-bin\win\ia32\app-builder.exe
+  C:\Users\Utilisateur\Desktop\pec-express-connect\node_modules\app-builder-bin\win\x64\app-builder.exe
+  C:\Users\Utilisateur\Desktop\pec-express-connect\node_modules\electron\dist\electron.exe
+  C:\Users\Utilisateur\Desktop\pec-express-connect\resources\backup\cabflow-logos-bridge.dll
+  C:\Users\Utilisateur\Desktop\pec-express-connect\resources\native\cabflow-logos-bridge.dll
+  C:\Users\Utilisateur\Desktop\pec-express-connect\resources\native\PecExpressService.exe
+  C:\Users\Utilisateur\Desktop\pec-express-connect\resources\win\gs\gswin64.exe
+  C:\Users\Utilisateur\Desktop\pec-express-connect\resources\win\gs\gswin64c.exe
+  C:\Users\Utilisateur\Desktop\pec-express-connect\resources\win\cabflow-icon-32.png
+  C:\Users\Utilisateur\Desktop\pec-express-connect\resources\win\cabflow-icon-64.png
+  C:\Users\Utilisateur\Desktop\pec-express-connect\resources\win\CabFlowReader.exe

@@ -1,0 +1,9 @@
+﻿WINDEV: aucun (bien)
+LOGOS : ouvert
+Analyse restauree. My_Project.wdd = 7142 octets (attendu 7142).
+Copie ACTES_2 faite.
+----- Test lecture (config d'origine) -----
+Connexion OK
+  COUNT(*) = 24466  ==> LECTURE OK, on est repartis !
+  cle=25962 num=1499 date=20260716
+  cle=25961 num=1499 date=20260716

@@ -119,7 +119,7 @@ $anchors = New-Object 'System.Collections.Generic.List[byte[]]'
 $anchors.Add($lat.GetBytes($nomUp))
 $anchors.Add($uni.GetBytes($nomUp))
 
-$blob = [LPT]::CollectAroundAnchors($proc.Id, $anchors.ToArray(), 4000, 8000000)
+$blob = [LPT]::CollectAroundAnchors($proc.Id, $anchors.ToArray(), 16000, 20000000)
 if (-not $blob -or $blob.Length -eq 0) {
     Write-Error "Nom '$nomUp' introuvable en memoire (fiche patient ouverte ?)"
     exit 2
@@ -154,9 +154,10 @@ if ($mm -and $yy) {
         if ($pm.Success) { $dob = $pm.Value; break }
     }
 }
-# 2b) Repli (NIR absent) : parmi les dates plausibles (1900..annee courante), on
-#     prend celle dont l'ANNEE est la plus ANCIENNE = la date de naissance. Cela
-#     evite la date de 1er RDV ou "verifie le" qui sont recentes.
+# 2b) Repli (NIR absent) : parmi les dates plausibles, on prend celle dont
+#     l'ANNEE est la plus ANCIENNE = la date de naissance. On EXCLUT l'annee
+#     courante (dates systeme/creation "aujourd'hui", ex. 16/07/2026) qui ne
+#     peuvent pas etre une naissance de patient adulte, et les dates recentes.
 if (-not $dob) {
     $curY = (Get-Date).Year
     $bestY = 9999
@@ -164,7 +165,7 @@ if (-not $dob) {
         $parts = $d.Split('/')
         $dd = [int]$parts[0]; $mo = [int]$parts[1]; $Y = [int]$parts[2]
         if ($dd -lt 1 -or $dd -gt 31 -or $mo -lt 1 -or $mo -gt 12) { continue }
-        if ($Y -ge 1900 -and $Y -le $curY -and $Y -lt $bestY) { $bestY = $Y; $dob = $d }
+        if ($Y -ge 1900 -and $Y -lt $curY -and $Y -lt $bestY) { $bestY = $Y; $dob = $d }
     }
 }
 

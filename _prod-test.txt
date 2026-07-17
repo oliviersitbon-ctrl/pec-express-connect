@@ -1,0 +1,13 @@
+﻿Logos ferme : OK
+Sauvegarde faite dans: C:\Users\Utilisateur\Desktop\pec-express-connect\backup-prod-20260716-0214
+Connexion prod OK
+Avant: 23 actes pour 1720
+INSERT prod ok (lignes=1)
+==> Nouvelle ecriture: ACTE_CLE_UNIQUE = 25963  (a supprimer apres le test)
+PDF de test pose: L:\Patients\LIENS\1720\TEST-SANS-MEMO.pdf
+
+==================================================
+MAINTENANT : rouvre Logos, ouvre le dossier 1720 (SITBON Olivier),
+va dans l'onglet Documents, et regarde s'il y a un document aujourd'hui.
+Note la cle a supprimer ensuite: 25963
+==================================================

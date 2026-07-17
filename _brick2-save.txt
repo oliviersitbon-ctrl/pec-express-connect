@@ -1,0 +1,42 @@
+﻿Dialogue trouve.
+=== Edit/ComboBox trouves: 37 ===
+  [Edit    ] name='Nom' auto='System.ItemNameDisplay' y=345
+  [Edit    ] name='Modifié le' auto='System.DateModified' y=345
+  [Edit    ] name='Type' auto='System.ItemTypeText' y=345
+  [Edit    ] name='Taille' auto='System.Size' y=345
+  [Edit    ] name='Nom' auto='System.ItemNameDisplay' y=373
+  [Edit    ] name='Modifié le' auto='System.DateModified' y=373
+  [Edit    ] name='Type' auto='System.ItemTypeText' y=373
+  [Edit    ] name='Taille' auto='System.Size' y=373
+  [Edit    ] name='Nom' auto='System.ItemNameDisplay' y=401
+  [Edit    ] name='Modifié le' auto='System.DateModified' y=401
+  [Edit    ] name='Type' auto='System.ItemTypeText' y=401
+  [Edit    ] name='Taille' auto='System.Size' y=401
+  [Edit    ] name='Nom' auto='System.ItemNameDisplay' y=429
+  [Edit    ] name='Modifié le' auto='System.DateModified' y=429
+  [Edit    ] name='Type' auto='System.ItemTypeText' y=429
+  [Edit    ] name='Taille' auto='System.Size' y=429
+  [Edit    ] name='Nom' auto='System.ItemNameDisplay' y=457
+  [Edit    ] name='Modifié le' auto='System.DateModified' y=457
+  [Edit    ] name='Type' auto='System.ItemTypeText' y=457
+  [Edit    ] name='Taille' auto='System.Size' y=457
+  [Edit    ] name='Nom' auto='System.ItemNameDisplay' y=485
+  [Edit    ] name='Modifié le' auto='System.DateModified' y=485
+  [Edit    ] name='Type' auto='System.ItemTypeText' y=485
+  [Edit    ] name='Taille' auto='System.Size' y=485
+  [Edit    ] name='Nom' auto='System.ItemNameDisplay' y=513
+  [Edit    ] name='Modifié le' auto='System.DateModified' y=513
+  [Edit    ] name='Type' auto='System.ItemTypeText' y=513
+  [Edit    ] name='Taille' auto='System.Size' y=513
+  [Edit    ] name='Nom' auto='System.ItemNameDisplay' y=541
+  [Edit    ] name='Modifié le' auto='System.DateModified' y=541
+  [Edit    ] name='Type' auto='System.ItemTypeText' y=541
+  [Edit    ] name='Taille' auto='System.Size' y=541
+  [Edit    ] name='Nom' auto='System.ItemNameDisplay' y=569
+  [Edit    ] name='Modifié le' auto='System.DateModified' y=569
+  [Edit    ] name='Type' auto='System.ItemTypeText' y=569
+  [Edit    ] name='Taille' auto='System.Size' y=569
+  [Edit    ] name='Zone de recherche' auto='SearchEditBox' y=244
+Champ 'Nom du fichier' non nomme -> fallback sur le plus bas (y=569).
+Champ choisi: name='Nom' type=Edit
+SetValue KO: Exception lors de l'appel de « SetValue » avec « 1 » argument(s) : « L’opération a été annulée par l’utilisateur. (Exception de HRESULT : 0x800704C7) »

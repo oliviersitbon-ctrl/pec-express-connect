@@ -1,0 +1,45 @@
+﻿Dialogue trouve.
+Libelle 'Nom du fichier' trouve a y=580 (x=565)
+=== Edit/ComboBox: 37 ===
+  [Edit    ] name='Nom' auto='System.ItemNameDisplay' x=751 y=345 w=236
+  [Edit    ] name='Modifié le' auto='System.DateModified' x=987 y=345 w=144
+  [Edit    ] name='Type' auto='System.ItemTypeText' x=1131 y=345 w=120
+  [Edit    ] name='Taille' auto='System.Size' x=1251 y=345 w=80
+  [Edit    ] name='Nom' auto='System.ItemNameDisplay' x=751 y=373 w=236
+  [Edit    ] name='Modifié le' auto='System.DateModified' x=987 y=373 w=144
+  [Edit    ] name='Type' auto='System.ItemTypeText' x=1131 y=373 w=120
+  [Edit    ] name='Taille' auto='System.Size' x=1251 y=373 w=80
+  [Edit    ] name='Nom' auto='System.ItemNameDisplay' x=751 y=401 w=236
+  [Edit    ] name='Modifié le' auto='System.DateModified' x=987 y=401 w=144
+  [Edit    ] name='Type' auto='System.ItemTypeText' x=1131 y=401 w=120
+  [Edit    ] name='Taille' auto='System.Size' x=1251 y=401 w=80
+  [Edit    ] name='Nom' auto='System.ItemNameDisplay' x=751 y=429 w=236
+  [Edit    ] name='Modifié le' auto='System.DateModified' x=987 y=429 w=144
+  [Edit    ] name='Type' auto='System.ItemTypeText' x=1131 y=429 w=120
+  [Edit    ] name='Taille' auto='System.Size' x=1251 y=429 w=80
+  [Edit    ] name='Nom' auto='System.ItemNameDisplay' x=751 y=457 w=236
+  [Edit    ] name='Modifié le' auto='System.DateModified' x=987 y=457 w=144
+  [Edit    ] name='Type' auto='System.ItemTypeText' x=1131 y=457 w=120
+  [Edit    ] name='Taille' auto='System.Size' x=1251 y=457 w=80
+  [Edit    ] name='Nom' auto='System.ItemNameDisplay' x=751 y=485 w=236
+  [Edit    ] name='Modifié le' auto='System.DateModified' x=987 y=485 w=144
+  [Edit    ] name='Type' auto='System.ItemTypeText' x=1131 y=485 w=120
+  [Edit    ] name='Taille' auto='System.Size' x=1251 y=485 w=80
+  [Edit    ] name='Nom' auto='System.ItemNameDisplay' x=751 y=513 w=236
+  [Edit    ] name='Modifié le' auto='System.DateModified' x=987 y=513 w=144
+  [Edit    ] name='Type' auto='System.ItemTypeText' x=1131 y=513 w=120
+  [Edit    ] name='Taille' auto='System.Size' x=1251 y=513 w=80
+  [Edit    ] name='Nom' auto='System.ItemNameDisplay' x=751 y=541 w=236
+  [Edit    ] name='Modifié le' auto='System.DateModified' x=987 y=541 w=144
+  [Edit    ] name='Type' auto='System.ItemTypeText' x=1131 y=541 w=120
+  [Edit    ] name='Taille' auto='System.Size' x=1251 y=541 w=80
+  [Edit    ] name='Nom' auto='System.ItemNameDisplay' x=751 y=569 w=236
+  [Edit    ] name='Modifié le' auto='System.DateModified' x=987 y=569 w=144
+  [Edit    ] name='Type' auto='System.ItemTypeText' x=1131 y=569 w=120
+  [Edit    ] name='Taille' auto='System.Size' x=1251 y=569 w=80
+  [Edit    ] name='Zone de recherche' auto='SearchEditBox' x=1291 y=244 w=158
+Champ sur la ligne du libelle: name='Nom' auto='System.ItemNameDisplay' w=236
+SetFocus KO: Exception lors de l'appel de « SetFocus » avec « 0 » argument(s) : « L'élément cible ne peut pas recevoir le focus. »
+Chemin tape.
+Entree envoyee.
+PAS ENCORE de fichier.

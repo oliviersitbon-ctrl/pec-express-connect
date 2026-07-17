@@ -1,0 +1,198 @@
+﻿
+==================== C:\Users\Utilisateur\Desktop\pec-express ====================
+  Branche: main
+  --- fetch ---
+    From https://github.com/oliviersitbon-ctrl/pec-express
+       ed05d5b..fe63c1d  main       -> origin/main
+  --- etat local (fichiers modifies/non suivis) ---
+    ## main...origin/main [behind 17]
+  --- commits en retard sur origin ---
+    fe63c1d fix(itelis recap): mappe les actes/motif/mutuelle vers PecResultPanel + 2e PDF (lettre) robuste au dossier refuse
+    582cf8a fix(itelis relay): remet /deco (session fraiche -> handoff extranet fiable)
+    35dc79a fix(itelis NIR): calcule la cle (97 - NIR mod 97) si absente
+    818407d fix(itelis materiau): 'alliage non precieux' -> COC (pas MPR) + polymeres -> RES
+    20657be fix(pec recap): totalDents defensif -> plus de crash sur dossier refuse Itelis
+    c1ea953 fix(itelis): resoudre identiteAMC par NOM assureur (pas le n AMC carte)
+    71d7337 fix(itelis relay): decode le jeton avant /sso (double-encodage %3D%3D)
+    b07c3e9 fix(itelis realisation): voie Bearer via l'access_token du relais navigateur
+    de6e80b fix(itelis relay): retrait de la deconnexion /deco prealable
+    3ec34a3 feat(console admin MDD): catalogue iSante pour le champ mutuelle
+    df3a931 fix(itelis relay): deconnexion prealable /deco -> session vierge -> jeton genere
+    ef60aca diag+fix(itelis relay): extraction jeton elargie (URL+JSON+attr) + diag body
+    733db77 diag(itelis relay): message de refus OTP montre la reponse Itelis + statut (0.7.54)
+    d1f5fa2 diag+fix(itelis relay): erreur jeton enrichie (SW) + champ OTP robuste (console)
+    0bb2f01 fix(itelis relay): ne vider le champ OTP qu'une fois par refus
+    c3e79b8 Merge branch 'main' of https://github.com/oliviersitbon-ctrl/pec-express
+    5a899ec feat(itelis relay): reprise OTP sur refus (SW + console)
+  --- pull (fast-forward only) ---
+    Updating ed05d5b..fe63c1d
+    Fast-forward
+     .../app/api/portals/itelis/execute/route.ts        | 86 +++++++++++++++++---
+     .../components/admin/OcamLaunchPanel.tsx           | 23 ++++--
+     .../components/admin/PecRealizationConsole.tsx     | 14 +++-
+     .../components/wizard/PecResultPanel.tsx           |  2 +-
+     .../lib/portals/itelis/acte-resolver.ts            | 14 +++-
+     pec-express-app/lib/portals/itelis/client.ts       | 21 ++++-
+     pec-express-app/lib/portals/itelis/pdf.ts          | 51 +++++++-----
+     poc-extension/background.js                        | 94 ++++++++++++++++------
+     poc-extension/manifest.json                        |  2 +-
+     9 files changed, 235 insertions(+), 72 deletions(-)
+
+==================== C:\Users\Utilisateur\Desktop\pec-express-connect ====================
+  Branche: main
+  --- fetch ---
+  --- etat local (fichiers modifies/non suivis) ---
+    ## main...origin/main
+     M src/main/index.js
+     M src/main/overlay-pec.js
+    ?? MddButton.cs
+    ?? MddButton.exe
+    ?? _after.txt
+    ?? _analyse-files.txt
+    ?? _before.txt
+    ?? _brick2-diag.txt
+    ?? _brick2-diag2.txt
+    ?? _brick2-log.txt
+    ?? _brick2-save.txt
+    ?? _brick2-win32.txt
+    ?? _cabflow-explicit.txt
+    ?? _cabflow-test.txt
+    ?? _civil-1290.bin
+    ?? _cleanup.txt
+    ?? _copie-analyse.txt
+    ?? _diag-lock.txt
+    ?? _diff-binary.txt
+    ?? _fic-names.txt
+    ?? _fieldnames.txt
+    ?? _find-analysis.txt
+    ?? _find-wdd.txt
+    ?? _hfsql-all.txt
+    ?? _hfsql-analyse.txt
+    ?? _hfsql-diag.txt
+    ?? _hfsql-ecriture.txt
+    ?? _hfsql-full.txt
+    ?? _hfsql-import.txt
+    ?? _hfsql-newest.txt
+    ?? _insert-test.txt
+    ?? _liens-1290.txt
+    ?? _liens-apres.txt
+    ?? _liens-avant.txt
+    ?? _liens-baseline.txt
+    ?? _liens-check.txt
+    ?? _list-project.txt
+    ?? _logos-ini-dump.txt
+    ?? _logoswdd-cols.txt
+    ?? _mdd-btn-log.txt
+    ?? _memoname.txt
+    ?? _prep-prod.txt
+    ?? _prod-read.txt
+    ?? _prod-test.txt
+    ?? _read-memo.txt
+    ?? _replace-pdf.txt
+    ?? _restore-good.txt
+    ?? _restore-test.txt
+    ?? _test-clean.txt
+    ?? _test-logoswdd.txt
+    ?? _test-logoswdd2.txt
+    ?? _test-v2.txt
+    ?? _test-v3.txt
+    ?? _toolbar.png
+    ?? _uia-dump.txt
+    ?? _uia-toolbar.txt
+    ?? _uia-v2.txt
+    ?? _windev.txt
+    ?? _wl-doc.txt
+    ?? _wl-ecrit.txt
+    ?? _wl-items.txt
+    ?? _wl-lecture.txt
+    ?? _wl-memo.txt
+    ?? after/
+    ?? analyse-v28/
+    ?? backup-prod-20260716-0214/
+    ?? backup-prod-20260716-1606/
+    ?? before/
+    ?? brick2-pdf.ps1
+    ?? brick2-save-v2.ps1
+    ?? brick2-save-v3.ps1
+    ?? brick2-save-v4.ps1
+    ?? brick2-save-v5.ps1
+    ?? brick2-save-v6.ps1
+    ?? brick2-save-v7.ps1
+    ?? brick2-save-v8.ps1
+    ?? brick2-save-v9.ps1
+    ?? brick2-save.ps1
+    ?? bundle-exe.ps1
+    ?? copy-wdd.ps1
+    ?? diag-bouton-dll.ps1
+    ?? extract-memoname.ps1
+    ?? fic-names-utf16.ps1
+    ?? find-analysis.ps1
+    ?? find-wdd.ps1
+    ?? hfsql-all.ps1
+    ?? hfsql-analyse.ps1
+    ?? hfsql-cleanup.ps1
+    ?? hfsql-diag-lock.ps1
+    ?? hfsql-diag.ps1
+    ?? hfsql-diff-binary.ps1
+    ?? hfsql-ecriture.ps1
+    ?? hfsql-fieldnames.ps1
+    ?? hfsql-fix-diag.ps1
+    ?? hfsql-full.ps1
+    ?? hfsql-import.ps1
+    ?? hfsql-insert-test.ps1
+    ?? hfsql-newest.ps1
+    ?? hfsql-prod-read.ps1
+    ?? hfsql-prod-test.ps1
+    ?? hfsql-read-memo.ps1
+    ?? hfsql-read.ps1
+    ?? hfsql-read2.ps1
+    ?? hfsql-restore-good.ps1
+    ?? hfsql-restore-test.ps1
+    ?? hfsql-tables.ps1
+    ?? hfsql-test-clean.ps1
+    ?? hfsql-test-v2.ps1
+    ?? hfsql-test-v3.ps1
+    ?? inspect-logos.ps1
+    ?? list-project.ps1
+    ?? logoswdd-cols.ps1
+    ?? omnicab-scan.ps1
+    ?? package-lock.json
+    ?? prep-prod-windev.ps1
+    ?? replace-pdf.ps1
+    ?? src/main/logos-devis-pdf.js
+    ?? src/main/logos-devis-writer.js
+    ?? test-logoswdd.ps1
+    ?? test-logoswdd2.ps1
+    ?? update-repos.ps1
+    ?? wdd-versions/
+    ?? wlangage-etape1.txt
+    ?? wlangage-lecture.txt
+  --- commits en retard sur origin ---
+    (a jour)
+  --- pull (fast-forward only) ---
+    Already up to date.
+
+==================== C:\Users\Utilisateur\Desktop\labora-dental-excellence ====================
+  Branche: main
+  --- fetch ---
+    From https://github.com/oliviersitbon-ctrl/labora-dental-excellence
+       c79c36b..341d6ce  main       -> origin/main
+  --- etat local (fichiers modifies/non suivis) ---
+    ## main...origin/main [behind 9]
+  --- commits en retard sur origin ---
+    341d6ce fix(itelis relay): remet /deco (session fraiche -> handoff extranet fiable)
+    e0afae9 fix(itelis relay): decode le jeton avant /sso (double-encodage %3D%3D)
+    c3c06c1 fix(itelis relay): retrait de la deconnexion /deco prealable
+    71196f8 feat(panneau doctolib): catalogue iSante pour le champ mutuelle
+    0bb62ae fix(itelis relay): deconnexion prealable /deco -> session vierge -> jeton genere
+    7aa84b3 diag+fix(itelis relay): extraction jeton elargie (URL+JSON+attr) + diag body
+    1f694d3 diag(itelis relay): message de refus OTP montre la reponse Itelis + statut (2.1.56)
+    829bff7 diag(itelis relay): erreur jeton enrichie (ws + redirect + extrait body)
+    849bbc9 feat(itelis relay): reprise OTP sur refus sans relancer le flux
+  --- pull (fast-forward only) ---
+    Updating c79c36b..341d6ce
+    Fast-forward
+     extension-doctolib/background.js                   | 94 ++++++++++++++++------
+     .../content-scripts/doctolib/doctolib-panel.js     | 41 ++++++++--
+     extension-doctolib/manifest.json                   |  2 +-
+     3 files changed, 104 insertions(+), 33 deletions(-)

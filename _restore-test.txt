@@ -1,0 +1,4 @@
+﻿Copie prod -> Desktop\Patients faite.
+Analyse utilisee: C:\My Projects\My_Project\My_Project.ana\ANA00001\My_Project.wdd (existe=True)
+Connexion OK (copie)
+Requete KO: Exception lors de l'appel de « ExecuteReader » avec « 0 » argument(s) : « ERROR [01000] Impossible d'accéder au fichier.

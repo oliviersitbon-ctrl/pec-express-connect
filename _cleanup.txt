@@ -1,0 +1,8 @@
+﻿Logos ferme : OK
+Connexion prod OK
+Avant: la cle 25963 existe = 1
+DELETE execute (lignes=1)
+Apres: la cle 25963 existe = 0
+Total actes 1720 = 23 (attendu 23)
+==> Ecriture de test supprimee proprement.
+PDF de test supprime.

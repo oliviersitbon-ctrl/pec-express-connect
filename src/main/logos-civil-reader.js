@@ -153,4 +153,45 @@ function findRecordByName(ficPath, nom, prenom) {
   return null;
 }
 
-module.exports = { setLogger, readPatientCivil, findRecordByName, RECORD_LEN, OFF };
+/** Recherche par NIR : scanne CIVIL.FIC pour l'enregistrement dont le NIR
+ *  correspond. Comparaison sur les 13 premiers chiffres (NIR sans la clé), car
+ *  la FSE porte 15 chiffres (13 + clé) et CIVIL.FIC peut stocker l'un ou l'autre.
+ *  @returns {Object|null} fiche { nom, prenom, email, portable, nir, ... } */
+function findRecordByNir(ficPath, nir) {
+  const target = String(nir || '').replace(/\D/g, '').slice(0, 13);
+  if (target.length < 13) return null;
+  const size = fs.statSync(ficPath).size;
+  const total = Math.floor(size / RECORD_LEN);
+  const fd = fs.openSync(ficPath, 'r');
+  try {
+    const buf = Buffer.alloc(RECORD_LEN);
+    for (let i = 1; i < total; i++) {
+      fs.readSync(fd, buf, 0, RECORD_LEN, i * RECORD_LEN);
+      const recNir = decodeField(buf, 'nir').replace(/\D/g, '').slice(0, 13);
+      if (recNir && recNir === target) {
+        const rec = {
+          nom: decodeField(buf, 'nom'), prenom: decodeField(buf, 'prenom'),
+          dateNaissance: decodeField(buf, 'dateNaissance'), civilite: decodeField(buf, 'civilite'),
+          email: decodeField(buf, 'email'), portable: decodeField(buf, 'portable'),
+          cp: decodeField(buf, 'cp'), ville: decodeField(buf, 'ville'),
+          nir: decodeField(buf, 'nir').replace(/\s/g, ''),
+        };
+        if (rec.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(rec.email)) rec.email = '';
+        return rec;
+      }
+    }
+  } finally { fs.closeSync(fd); }
+  return null;
+}
+
+/** Retrouve un patient par son NIR à partir du dossier patients (CIVIL.FIC). */
+function readPatientByNir(patientsDir, nir) {
+  const ficPath = findCivilFic(patientsDir);
+  if (!ficPath) { log('CIVIL.FIC introuvable (patientsDir=' + patientsDir + ')'); return null; }
+  const rec = findRecordByNir(ficPath, nir);
+  if (rec) log(`NIR ${String(nir).slice(0,13)}… -> "${rec.nom} ${rec.prenom}" tel=${rec.portable || '—'} mail=${rec.email || '—'}`);
+  else log(`NIR ${String(nir).slice(0,13)}… introuvable dans CIVIL.FIC`);
+  return rec;
+}
+
+module.exports = { setLogger, readPatientCivil, findRecordByName, findRecordByNir, readPatientByNir, findCivilFic, RECORD_LEN, OFF };

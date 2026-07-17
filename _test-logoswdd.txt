@@ -1,0 +1,11 @@
+﻿WinDev: aucun (bien)
+Logos : ouvert
+Copie rafraichie.
+
+=== ANA00001 (reference) ===
+  C:\My Projects\My_Project\My_Project.ana\ANA00001\My_Project.wdd
+  ouvre pas ACTES_2 -> Exception lors de l'appel de « ExecuteReader » avec « 0 » argument(s) : « ERROR [01000] Impossible d'accéder au fichier.
+
+=== LOGOSWS1.WDD (Logos) ===
+  C:\wlogos1\LOGOSWS1.WDD
+  ouvre pas ACTES_2 -> Exception lors de l'appel de « ExecuteReader » avec « 0 » argument(s) : « ERROR [01000] Impossible d'accéder au fichier.

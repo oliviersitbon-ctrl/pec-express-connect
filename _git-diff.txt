@@ -1,0 +1,226 @@
+﻿===== STAT =====
+ src/main/index.js       | 153 +++++++++++++++++++++++++++++++++++++++++++-----
+ src/main/overlay-pec.js |   2 +-
+ 2 files changed, 139 insertions(+), 16 deletions(-)
+
+===== DERNIERS COMMITS SUR CES FICHIERS =====
+73e2131 Etat courant connecteur: envoi devis (saisie email) + modules PEC/Devis
+578a0a1 Bouton flottant MDD + choix PEC/Devis, suppression DLL+service omnicab (v1.0.33)
+243c5d4 Mon devis dentaire Connect├® : nom, logo, suppression omnicab (v1.0.32)
+
+===== DIFF COMPLET =====
+diff --git a/src/main/index.js b/src/main/index.js
+index 57bdaac..8465cb6 100644
+--- a/src/main/index.js
++++ b/src/main/index.js
+@@ -649,7 +649,8 @@ async function refreshModules() {
+     const cfg = cm.getConfig() || {};
+     const apiKey = cfg.apiKey || '';
+     if (!apiKey) return; // poste pas encore appaire
+-    const site = (cfg.urls && cfg.urls.site) || CONFIG.siteUrl;
++    // whoami vit sur l'hote API MDD (pas la facade Labora).
++    const site = CONFIG.siteUrl;
+     const fetch = require('node-fetch');
+     const res = await fetch(site + '/api/desktop/whoami', { headers: { 'x-api-key': apiKey } });
+     const json = await res.json().catch(() => ({}));
+@@ -662,22 +663,101 @@ async function refreshModules() {
+   }
+ }
+ 
+-async function sendDevisToPatient(data) {
++/**
++ * Appairage "par navigateur" du poste (sans cle a copier).
++ * 1) POST /api/desktop/pair/start -> recupere un code.
++ * 2) Ouvre {site}/connecteur/{code} dans le navigateur : le praticien se
++ *    connecte et clique "Connecter ce poste".
++ * 3) On interroge /api/desktop/pair/poll jusqu'a approbation, puis on memorise
++ *    la cle (apiKey) + base + modules dans la config locale.
++ * Retourne { ok:true, cabinetName, base } ou false.
++ */
++async function startBrowserPairing() {
++  const fetch = require('node-fetch');
++  const cm = require('./config-manager');
++  const cfg = cm.getConfig() || {};
++  // Les endpoints d'appairage vivent sur l'hote MDD (base + code deploye), pas sur
++  // la facade Labora -> on tape toujours CONFIG.siteUrl.
++  const site = CONFIG.siteUrl;
++  try {
++    log('[PAIR] Demarrage appairage navigateur (' + site + ')');
++    const startRes = await fetch(site + '/api/desktop/pair/start', { method: 'POST' });
++    const startJson = await startRes.json().catch(() => ({}));
++    if (!startRes.ok || !startJson.ok || !startJson.code) {
++      log('[PAIR] /pair/start echec: HTTP ' + startRes.status);
++      return false;
++    }
++    const code = startJson.code;
++    const pairUrl = site + '/connecteur/' + code;
++    log('[PAIR] Ouverture navigateur: ' + pairUrl);
++    openUrlInBrowser(pairUrl);
++
++    // Attend l'approbation du praticien (poll toutes les 2.5s, max ~3 min).
++    const deadline = Date.now() + 3 * 60 * 1000;
++    while (Date.now() < deadline) {
++      await new Promise((r) => setTimeout(r, 2500));
++      let pj = {};
++      try {
++        const pr = await fetch(site + '/api/desktop/pair/poll?code=' + encodeURIComponent(code));
++        pj = await pr.json().catch(() => ({}));
++      } catch (e) { continue; }
++      if (pj && pj.ok && pj.apiKey) {
++        cm.setOverride('apiKey', pj.apiKey);
++        if (pj.base) cm.setOverride('urls.site', pj.base);
++        if (pj.pecNouvelle) cm.setOverride('urls.pecNouvelle', pj.pecNouvelle);
++        if (pj.modules && typeof pj.modules === 'object') {
++          cm.setOverride('modules', { pec: pj.modules.pec !== false, devis: pj.modules.devis !== false });
++        }
++        log('[PAIR] Poste connecte a ' + (pj.cabinetName || '?') + ' (' + (pj.base || site) + ')');
++        return { ok: true, cabinetName: pj.cabinetName || '', base: pj.base || site };
++      }
++      // pending -> on continue d'attendre
++    }
++    log('[PAIR] Timeout appairage (3 min sans approbation)');
++    return false;
++  } catch (e) {
++    log('[PAIR] Erreur appairage: ' + e.message);
++    return false;
++  }
++}
++
++async function sendDevisToPatient(data, _retriedAfterPair) {
+   const fetch = require('node-fetch');
+   const { getConfig } = require('./config-manager');
+   const cfg = getConfig() || {};
+-  const site = (cfg.urls && cfg.urls.site) || CONFIG.siteUrl;
++  // Le devis part TOUJOURS vers l'hote API/BDD "Mon devis dentaire" (CONFIG.siteUrl),
++  // meme pour un cabinet Labora : les donnees (cabinet, cle, devis) vivent dans la
++  // base MDD que sert app.mondevisdentaire.com. La facade Labora (cfg.urls.site =
++  // laboradental.fr) ne sert qu'aux URLs user-facing (wizard PEC via iframe MDD).
++  const site = CONFIG.siteUrl;
+   const apiKey = cfg.apiKey || '';
+ 
+   if (!apiKey) {
+-    log('[DEVIS] Aucune cle API configuree - appairez ce poste (menu tray).');
+-    dialog.showMessageBoxSync({
+-      type: 'warning',
+-      title: 'Mon devis dentaire - Envoi de devis',
+-      message: "Ce poste n'est pas encore connecte a votre compte.",
+-      detail: 'Ouvrez le menu Mon devis dentaire (icone pres de l\'horloge), cliquez "Connecter ce poste..." et collez la cle du connecteur (Parametres > Connecteur).',
++    if (_retriedAfterPair) {
++      log('[DEVIS] Toujours pas de cle apres appairage - abandon.');
++      dialog.showMessageBoxSync({
++        type: 'warning',
++        title: 'Mon devis dentaire - Envoi de devis',
++        message: "La connexion du poste n'a pas abouti.",
++        detail: "Reessayez : une page de connexion s'ouvre dans votre navigateur, connectez-vous a Mon devis dentaire puis cliquez ┬½ Connecter ce poste ┬╗. L'envoi reprendra tout seul.",
++        buttons: ['OK'],
++      });
++      return false;
++    }
++    // Poste non appaire : au lieu d'un message, on ouvre la connexion navigateur.
++    log('[DEVIS] Poste non appaire -> ouverture de la connexion dans le navigateur.');
++    dialog.showMessageBox({
++      type: 'info',
++      title: 'Mon devis dentaire',
++      message: 'Connexion du poste',
++      detail: "Une page vient de s'ouvrir dans votre navigateur. Connectez-vous a Mon devis dentaire et cliquez ┬½ Connecter ce poste ┬╗. L'envoi du devis reprendra automatiquement.",
+       buttons: ['OK'],
+     });
++    const paired = await startBrowserPairing();
++    if (paired && paired.ok) {
++      log('[DEVIS] Appairage reussi -> reprise de l\'envoi du devis.');
++      return await sendDevisToPatient(data, true);
++    }
+     return false;
+   }
+ 
+@@ -738,8 +818,34 @@ async function sendDevisToPatient(data) {
+     channels: { email: true },
+   };
+ 
++  // === PDF officiel Logos ===
++  // Le site appose la signature SUR le PDF (lib/devis/sign-pdf.ts) : il faut
++  // donc envoyer le vrai devis PDF genere par Logos, pas rien. On le lit depuis
++  // LIENS\<patientId>\Devis-<devisId>*.pdf. Non bloquant : si le PDF n'existe
++  // pas encore (automatisation Logos pas encore passee), on envoie sans lui.
++  try {
++    const devisPdf = require('./logos-devis-pdf');
++    devisPdf.setLogger(log);
++    const ctx = data._logos || {};
++    const pdf = devisPdf.findLatestDevisPdf(
++      ctx.patientsDir,
++      ctx.patientId,
++      (ctx.devisId != null) ? ctx.devisId : data.devisId
++    );
++    if (pdf && pdf.base64) {
++      payload.pdfBase64 = pdf.base64;
++      payload.pdfFileName = pdf.fileName;
++      log('[DEVIS] PDF joint: ' + pdf.fileName + ' (' + pdf.sizeKb + ' Ko)');
++    } else {
++      log('[DEVIS] WARN: PDF officiel introuvable dans LIENS - envoi SANS pdfBase64');
++    }
++  } catch (ePdf) {
++    log('[DEVIS] WARN: lecture PDF echouee (non bloquant): ' + ePdf.message);
++  }
++
+   log('[DEVIS] POST ' + site + '/api/devis/share (' + actes.length + ' actes, ' +
+-      total.toFixed(2) + ' EUR, email=' + (email || 'aucun') + ')');
++      total.toFixed(2) + ' EUR, email=' + (email || 'aucun') + ', pdf=' +
++      (payload.pdfBase64 ? payload.pdfFileName : 'aucun') + ')');
+   try {
+     const res = await fetch(site + '/api/devis/share', {
+       method: 'POST',
+@@ -837,12 +943,17 @@ async function readAndOpenCabFlow(docName, intent) {
+   }
+   log('[CABFLOW] Utilise: ' + cabflowPath);
+ 
+-  // Tenter d'extraire un devisId depuis le nom du document
++  // docName porte le NUMERO PATIENT affiche a l'ecran (ex. "Numero 1290"),
++  // lu par l'overlay depuis le titre de la fenetre Logos. On le passe comme
++  // patientId EXPLICITE a CabFlowReader (arg1) au lieu de le laisser deviner le
++  // "patient courant" via la cle PatientEnCours de l'INI -- qui n'est PAS fiable
++  // sur une install reseau (ecrite avec du retard). arg2=0 => CabFlowReader
++  // auto-selectionne le dernier devis du patient. Cf. tests _cabflow-*.txt.
+   const args = [];
+-  const devisMatch = (docName || '').match(/\b(\d{3,6})\b/);
+-  if (devisMatch) {
+-    log('[CABFLOW] DevisId detecte dans docName "' + docName + '": ' + devisMatch[1]);
+-    args.push('0', devisMatch[1]); // arg1=patientId(auto), arg2=devisId
++  const numMatch = (docName || '').match(/\b(\d{3,6})\b/);
++  if (numMatch) {
++    log('[CABFLOW] Numero patient (ecran) force en patientId: ' + numMatch[1]);
++    args.push(numMatch[1], '0'); // arg1=patientId (ecran), arg2=devisId(0=auto)
+   }
+ 
+   return new Promise((resolve) => {
+@@ -994,6 +1105,18 @@ async function readAndOpenCabFlow(docName, intent) {
+         // Pousse le nom patient + nb actes dans le loader (visible immediatement)
+         updateLoaderPatient(data);
+ 
++        // Contexte fichier Logos : necessaire pour retrouver le PDF officiel du
++        // devis (LIENS\<patientId>\Devis-<devisId>*.pdf) au moment de l'envoi.
++        // patientsDir/patientId/devisId vivent dans mmoCtx (local), on les
++        // rattache a data pour sendDevisToPatient().
++        data._logos = {
++          patientsDir: mmoCtx.patientsDir || null,
++          patientId: (mmoCtx.patientId != null) ? mmoCtx.patientId
++                     : (data.patientId != null ? data.patientId : null),
++          devisId: (mmoCtx.devisId != null) ? mmoCtx.devisId
++                   : (data.devisId != null ? data.devisId : null),
++        };
++
+         // === INTENT DEVIS : envoi du devis au patient (email + espace patient
+         // + relances hebdo), exactement comme l'extension Chrome. On N'OUVRE PAS
+         // le wizard PEC : on poste le devis a /api/devis/share.
+diff --git a/src/main/overlay-pec.js b/src/main/overlay-pec.js
+index 4910519..e470d8a 100644
+--- a/src/main/overlay-pec.js
++++ b/src/main/overlay-pec.js
+@@ -124,7 +124,7 @@ async function refreshDevisDetection() {
+   try {
+     const r = await detectDevisPage();
+ 
+-    if (r.reason === 'logos-not-running' || r.reason === 'logos-not-foreground') {
++    if (r.reason === 'logos-not-running') {
+       // Logos n'est pas en avant -> cacher completement
+       log(`Logos = absent | raison=${r.reason}`);
+       _currentDevisInfo = null;

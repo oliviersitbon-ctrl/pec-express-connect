@@ -1,0 +1,6 @@
+﻿Logos ferme : OK
+Sauvegarde OK -> C:\Users\Utilisateur\Desktop\pec-express-connect\backup-prod-20260716-1606
+PDF de test pose : L:\Patients\LIENS\1720\TEST-WINDEV.pdf
+
+MAINTENANT : dans WinDev, remplace la 1ere ligne du code par le chemin L: (voir chat),
+puis GO + clic. Ensuite rouvre Logos et regarde le dossier 1720 (SITBON).

@@ -1,0 +1,9 @@
+﻿WinDev ferme : OK
+ANA00001 -> principal (7142 o)
+Copie rafraichie.
+
+=== BASELINE ANA00001 (principal) ===
+  OUVRE ACTES_2 : 60 colonnes
+
+=== LOGOSWS1.WDD ===
+  OUVRE ACTES_2 : 60 colonnes

@@ -1,0 +1,32 @@
+﻿=== Config DSN LOGOSCOPY (registre) ===
+  [HKLM:\SOFTWARE\ODBC\ODBC.INI\LOGOSCOPY]
+     Driver = C:\Program Files\Common Files\PC SOFT\2024\ODBC\Win64x86\wd290hfo64.dll
+     RepFic = C:\USERS\UTILISATEUR\DESKTOP\PATIENTS\
+     PWDXX = 
+     IntegrityCheck = 0
+     Analyse = C:\My Projects\My_Project\My_Project.wdd
+     Encryption = 
+Connexion OK
+=== SELECT TOP 1 * FROM ACTES_2 -> erreur complete ===
+OK ! 60 colonnes
+=== GetSchema() collections ===
+   MetaDataCollections
+   DataSourceInformation
+   DataTypes
+   Restrictions
+   ReservedWords
+   Columns
+   Indexes
+   Procedures
+   ProcedureColumns
+   ProcedureParameters
+   Tables
+   Views
+=== GetSchema('Tables') detail ===
+   lignes: 1
+   ->  |  | ACTES_2 | TABLE | 
+OK 'ACTES_2' -> 60 colonnes
+KO 'DEVIS' -> Exception lors de l'appel de « ExecuteReader » avec « 0 » argument(s) : « ERROR [HY090] Que s'est-il passé ?
+KO 'CIVIL' -> Exception lors de l'appel de « ExecuteReader » avec « 0 » argument(s) : « ERROR [HY090] Que s'est-il passé ?
+KO 'ACTES' -> Exception lors de l'appel de « ExecuteReader » avec « 0 » argument(s) : « ERROR [HY090] Que s'est-il passé ?
+KO 'RendezVous' -> Exception lors de l'appel de « ExecuteReader » avec « 0 » argument(s) : « ERROR [HY090] Que s'est-il passé ?

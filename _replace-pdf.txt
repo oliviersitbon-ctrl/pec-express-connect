@@ -1,0 +1,2 @@
+﻿PDF de test remplace par un vrai PDF : Devis-1099.pdf (125276 o)
+-> Reclique le document TEST-WINDEV dans Logos, il doit s'ouvrir proprement.

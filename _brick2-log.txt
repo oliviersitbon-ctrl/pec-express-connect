@@ -1,0 +1,6 @@
+﻿PDF trouve: centre=(1785,181) auto='-1585712536' name='
+' (dist=7)
+Patterns: 
+Invoke KO: Exception lors de l'appel de « GetCurrentPattern » avec « 1 » argument(s) : « Modèle non pris en charge. »
+DoDefaultAction KO: Type [System.Windows.Automation.LegacyIAccessiblePattern] introuvable.
+METHODE: PostMessage clic en (client 1786,148) -> envoye

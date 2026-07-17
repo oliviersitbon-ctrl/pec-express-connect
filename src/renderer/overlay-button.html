@@ -6,7 +6,7 @@
   <style>
     * { margin:0; padding:0; box-sizing:border-box; -webkit-user-select:none; user-select:none; }
     html, body { height:100vh; width:100vw; background:transparent; overflow:hidden;
-      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,sans-serif; -webkit-app-region:drag; }
+      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,sans-serif; -webkit-app-region:no-drag; }
     .wrap { position:absolute; top:4px; right:4px; display:flex; gap:6px; -webkit-app-region:no-drag; }
     .btn { display:flex; align-items:center; gap:6px; padding:4px 10px; color:#fff; font-size:11.5px;
       font-weight:600; border:none; border-radius:6px; height:24px; cursor:pointer; white-space:nowrap;
@@ -49,6 +49,27 @@
       // Un seul module actif => un seul bouton (declenche directement son wf).
       // Aucun module actif => rien.
       wrap.style.display = (!pecOn && !devOn) ? 'none' : 'flex';
+      reportHotRect();
+    }
+
+    // Rapporte au main la zone cliquable (union des boutons visibles), en px CSS
+    // relatifs a la fenetre. Le main s'en sert pour pre-armer la capture souris
+    // (poll du curseur) -> le 1er clic est pris en compte. requestAnimationFrame
+    // garantit que le layout est a jour avant de mesurer.
+    function reportHotRect() {
+      requestAnimationFrame(() => {
+        try {
+          if (!window.cabflow || !window.cabflow.setOverlayHotRect) return;
+          const btns = [bPec, bDev].filter((b) => !b.hidden && b.offsetParent !== null);
+          if (!btns.length) { window.cabflow.setOverlayHotRect(null); return; }
+          const rects = btns.map((b) => b.getBoundingClientRect());
+          const x = Math.min(...rects.map((r) => r.left));
+          const y = Math.min(...rects.map((r) => r.top));
+          const right = Math.max(...rects.map((r) => r.right));
+          const bottom = Math.max(...rects.map((r) => r.bottom));
+          window.cabflow.setOverlayHotRect({ x, y, w: right - x, h: bottom - y });
+        } catch (e) {}
+      });
     }
     async function loadModules() {
       try {
@@ -71,6 +92,15 @@
     bPec.addEventListener('click', () => fire('pec'));
     bDev.addEventListener('click', () => fire('devis'));
 
+    // Click-through : la fenetre overlay est traversante par defaut (les icones
+    // de Logos dessous restent cliquables a tout moment). La capture souris est
+    // desormais pilotee par le MAIN PROCESS (poll du curseur, cf. overlay-pec.js
+    // startCursorPoll), qui l'active AVANT le clic des que le curseur entre dans
+    // la zone des boutons -> plus de "1er clic ignore". On ne fait donc plus de
+    // bascule reactive sur mouseenter/mouseleave ici (elle arrivait trop tard).
+    // On rapporte simplement la geometrie des boutons au main.
+    window.addEventListener('resize', reportHotRect);
+
     if (window.cabflow && window.cabflow.onOverlayInfo) {
       window.cabflow.onOverlayInfo((data) => {
         // Rafraichir les modules a chaque changement (IPC local, peu couteux).
@@ -83,6 +113,8 @@
         } else {
           wrap.classList.add('disabled');
         }
+        // La visibilite/geometrie des boutons a pu changer -> re-mesurer.
+        reportHotRect();
       });
     }
   </script>

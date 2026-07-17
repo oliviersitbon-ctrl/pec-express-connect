@@ -1,0 +1,17 @@
+﻿Source DSN: HKLM:\SOFTWARE\ODBC\ODBC.INI\LOGOSCOPY
+   Driver = C:\Program Files\Common Files\PC SOFT\2024\ODBC\Win64x86\wd290hfo64.dll
+   RepFic = C:\USERS\UTILISATEUR\DESKTOP\PATIENTS\
+   PWDXX = 
+   IntegrityCheck = 0
+   Analyse = C:\My Projects\My_Project\My_Project.wdd
+   Encryption = 
+DSN LOGOSPROD cree (RepFic=L:\Patients\, Driver=C:\Program Files\Common Files\PC SOFT\2024\ODBC\Win64x86\wd290hfo64.dll).
+----- Lecture prod directe (L:) -----
+Connexion prod OK
+  COUNT(*) prod = 24466
+  cle=25962 patient=1499 date=20260716
+  cle=25961 patient=1499 date=20260716
+  cle=25960 patient=1720 date=20260715
+  cle=25959 patient=1720 date=20260715
+  cle=25958 patient=1720 date=20260715
+==> Si tu vois les cles ci-dessus, on lit la prod en direct (sans copie).

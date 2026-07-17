@@ -1,0 +1,27 @@
+﻿----- Processus Logos / WinDev / HFSQL en cours -----
+  LOGOS_w  (PID 19148)
+  SearchFilterHost  (PID 2224)
+  SearchFilterHost  (PID 2476)
+  SearchFilterHost  (PID 4428)
+  SearchFilterHost  (PID 5456)
+  SearchFilterHost  (PID 5908)
+  SearchFilterHost  (PID 6316)
+  SearchFilterHost  (PID 15960)
+  SearchFilterHost  (PID 17952)
+  SearchFilterHost  (PID 25092)
+  wd280webexe  (PID 14624)
+  wd280webexe  (PID 18336)
+  wd280webexe  (PID 22284)
+  wd280webexe  (PID 23588)
+----- Desktop\Patients\ACTES_2.* -----
+  ACTES_2.fic            21661260 o  00:46:59
+  ACTES_2.mmo             4554834 o  00:46:59
+  ACTES_2.ndx             3245335 o  00:46:59
+----- L:\Patients\ACTES_2.* (prod) -----
+  ACTES_2.fic            21661260 o  00:46:59
+  ACTES_2.mmo             4554834 o  00:46:59
+  ACTES_2.ndx             3245335 o  00:46:59
+----- Test COUNT(*) avec ANA00001 -----
+  KO: Exception lors de l'appel de « ExecuteScalar » avec « 0 » argument(s) : « ERROR [01000] Impossible d'accéder au fichier.
+----- Test COUNT(*) avec My_Project.wdd (top-level) -----
+  KO: Exception lors de l'appel de « ExecuteScalar » avec « 0 » argument(s) : « ERROR [01000] Impossible d'accéder au fichier.

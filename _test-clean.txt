@@ -1,0 +1,12 @@
+﻿WinDev en cours : non
+Logos en cours  : LOGOS_w
+OK : WinDev est ferme, on continue.
+Copie prod -> Desktop\Patients faite.
+
+========== A) ANA00001 (propre, 60 champs, SANS memo) ==========
+  wdd = C:\My Projects\My_Project\My_Project.ana\ANA00001\My_Project.wdd (existe=True)
+  KO: Exception lors de l'appel de « ExecuteScalar » avec « 0 » argument(s) : « ERROR [01000] Impossible d'accéder au fichier.
+
+========== B) Actuelle (AVEC memo COMMENTAIRE) ==========
+  wdd = C:\My Projects\My_Project\My_Project.wdd (existe=True)
+  KO: Exception lors de l'appel de « ExecuteScalar » avec « 0 » argument(s) : « ERROR [01000] Impossible d'accéder au fichier.

@@ -1,0 +1,79 @@
+﻿Analyse Logos: C:\wlogos1\LOGOSWS1.WDD (328823 o)
+----- Contexte autour des champs ACTES_2 connus -----
+  @112645 [Heure] -> voisins: travail | AC_HEURE | Heure | acte | AC_HONOR | Honoraires | acte | 999 | 999 | AC_ID | Indemnit
+  @148293 [heure] -> voisins: DATE_HEURE | Date | heure | DATE_HEURE_CREATION | Date | heure | ation | DATE_HEURE_DEMANDE | Date | heure | envoi
+  @148398 [heure] -> voisins: DATE_HEURE_CREATION | Date | heure | ation | DATE_HEURE_DEMANDE | Date | heure | envoi | demand | DATE_HEURE_ENVOYE | Date
+  @148506 [heure] -> voisins: DATE_HEURE_DEMANDE | Date | heure | envoi | demand | DATE_HEURE_ENVOYE | Date | heure | envoy | DATE_HEURE_LOT | DATE_LOT
+  @148614 [heure] -> voisins: DATE_HEURE_ENVOYE | Date | heure | envoy | DATE_HEURE_LOT | DATE_LOT | HEURE_LOT | DATE_HEURE_STER | DATE_STER | HEURE_STER | DATE_LOT
+  @158082 [DEVIS_CLEUNIK] -> voisins: DEVIS | Texte | DEVIS_CLEUNIK | Devis | cleunik | 999 | 999 | 999 | DEVISODF | Devis | DIAGNO
+  @179605 [Heure] -> voisins: Habitudes | HDEBUT | Heure | debut | HEURE | Heure | HEURE_CREA | Heure | ation | HEURE_LOT | Heure
+  @179682 [HEURE] -> voisins: Heure | debut | HEURE | Heure | HEURE_CREA | Heure | ation | HEURE_LOT | Heure | lot | HEURE_RECE
+  @179713 [Heure] -> voisins: debut | HEURE | Heure | HEURE_CREA | Heure | ation | HEURE_LOT | Heure | lot | HEURE_RECE | Heure
+  @179821 [Heure] -> voisins: Heure | HEURE_CREA | Heure | ation | HEURE_LOT | Heure | lot | HEURE_RECE | Heure | ception | HEURE_STER
+  @179929 [Heure] -> voisins: ation | HEURE_LOT | Heure | lot | HEURE_RECE | Heure | ception | HEURE_STER | Heure | rilisation | HEUREDEBUT
+  @180037 [Heure] -> voisins: lot | HEURE_RECE | Heure | ception | HEURE_STER | Heure | rilisation | HEUREDEBUT | Heuredebut | HEUREECHU | Heure
+  @180145 [Heure] -> voisins: ception | HEURE_STER | Heure | rilisation | HEUREDEBUT | Heuredebut | HEUREECHU | Heure | ance | HEUREFICH | Heurefich
+  @180361 [Heure] -> voisins: Heuredebut | HEUREECHU | Heure | ance | HEUREFICH | Heurefich | HEUREFIN | Heurefin | HFIN | Heure | fin
+  @180685 [Heure] -> voisins: Heurefin | HFIN | Heure | fin | HISTODER | Histologie | simple | HISTORIQUE | Historique | 999 | 999
+  @250997 [heure] -> voisins: TBL_HEURE_PROTHESE | Tbl | heure | prothese | TBL_LABOCOMMENTAIRE | Tbl | labo | commentaire | TCMPT | Type | couleur
+----- Identifiants candidats (MEMO/REMARQUE/COMMENT/DOC/TEXTE/MATERIAU) -----
+  @935 : Fichier
+  @29863 : Fichiers
+  @41966 : DOCUMENT
+  @42519 : Documents
+  @42530 : texte
+  @65470 : MATERIAU
+  @125574 : CCAM_COMMENTAIRE
+  @125610 : commentaire
+  @127086 : CHAINE_MATERIAU
+  @129894 : CLASSE_MATERIAU
+  @130002 : CLASSE_MATERIAU2
+  @130110 : CLASSE_MATERIAU3
+  @130218 : CLASSE_MATERIAU4
+  @132526 : PARTAGE_MATERIAU
+  @134245 : Commentaires
+  @137238 : COMMENT
+  @137346 : COMMENT_RDV
+  @137454 : COMMENTAIRE_APPEL
+  @137562 : COMMENTAIRE_CIVIL
+  @137670 : COMMENTAIRE_INTERVENTION
+  @137778 : COMMENTAIRE_PHOTO
+  @137886 : COMMENTAIRES_PROTHESE
+  @138318 : COMPLEMENT_NOTE
+  @138360 : note
+  @143610 : COULEUR_COMMENTAIRE
+  @144042 : COULEUR_NOTE
+  @147822 : DATE_FICHIER
+  @153222 : DATEPIECE
+  @153264 : piece
+  @172446 : FAUTEUIL_MATERIAU
+  @173202 : FICHIERMAIL
+  @173850 : FLAG1_COMMENTAIRE
+  @173958 : FLAG2_COMMENTAIRE
+  @174606 : FLG_PRAT_NOTE
+  @189942 : LABO_MATERIAU
+  @192318 : LIENS
+  @194478 : MATERIAU_PLAN
+  @194586 : MATERIAU_PROTHESE
+  @194694 : Materiaux_Fiche
+  @194725 : Materiaux
+  @194802 : MATERIAUX_UTILISES
+  @208950 : NomFichier
+  @213378 : NUMERO_DOCUMENT
+  @214026 : NUMERO_PIECE
+  @217266 : ORIG_PIECE
+  @221694 : PIECE_AMC
+  @233466 : REF_PIECE
+  @233790 : REFERENCE_CLIENT
+  @233834 : client
+  @234978 : REMARQUE
+  @251070 : TBL_LABOCOMMENTAIRE
+  @253554 : TEXTE_NOTE
+  @253662 : TEXTE_SMS
+  @253770 : TEXTE_VARIABLE
+  @253878 : TEXTECOU
+  @253909 : TexteCourrier
+  @254418 : TITRE_NOTE
+  @260034 : TYPE_MATERIAU
+  @260142 : TYPE_NOTE
+  @261978 : USER_NOTE

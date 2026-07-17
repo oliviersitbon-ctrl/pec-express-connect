@@ -1,0 +1,32 @@
+﻿===== C:\My Projects\My_Project =====
+  My_Project.wdd                                              7144 o  2026-07-16 01:49:46
+  My_Project.ana\My_Project.wdd                               7144 o  2026-07-16 01:49:46
+  My_Project.ana\ANA00003\My_Project.wdd                      7144 o  2026-07-16 01:49:46
+  My_Project.ana\lastsave\My_Project.wda                     20016 o  2026-07-16 01:49:46
+  My_Project.ana\ANA00003\My_Project.wda                     20016 o  2026-07-16 01:49:46
+  My_Project.ana\My_Project.wda                              20016 o  2026-07-16 01:49:46
+  My_Project.ana\LASTGEN\My_Project.wda                      19998 o  2026-07-16 01:49:46
+  My_Project.ana\ANA00002\My_Project.wdd                      7158 o  2026-07-16 01:05:43
+  My_Project.ana\LASTGEN\My_Project.wdd                       7158 o  2026-07-16 01:05:43
+  My_Project.ana\ANA00002\My_Project.wda                     20046 o  2026-07-16 01:05:43
+  My_Project.ana\ANA00001\My_Project.wdd                      7142 o  2026-07-16 00:20:21
+  My_Project.ana\ANA00001\My_Project.wda                     20036 o  2026-07-16 00:20:21
+===== C:\My Projects =====
+  My_Project\My_Project.wdd                                   7144 o  2026-07-16 01:49:46
+  My_Project\My_Project.ana\My_Project.wdd                    7144 o  2026-07-16 01:49:46
+  My_Project\My_Project.ana\ANA00003\My_Project.wdd           7144 o  2026-07-16 01:49:46
+  My_Project\My_Project.ana\lastsave\My_Project.wda          20016 o  2026-07-16 01:49:46
+  My_Project\My_Project.ana\ANA00003\My_Project.wda          20016 o  2026-07-16 01:49:46
+  My_Project\My_Project.ana\My_Project.wda                   20016 o  2026-07-16 01:49:46
+  My_Project\My_Project.ana\LASTGEN\My_Project.wda           19998 o  2026-07-16 01:49:46
+  My_Project\My_Project.ana\ANA00002\My_Project.wdd           7158 o  2026-07-16 01:05:43
+  My_Project\My_Project.ana\LASTGEN\My_Project.wdd            7158 o  2026-07-16 01:05:43
+  My_Project\My_Project.ana\ANA00002\My_Project.wda          20046 o  2026-07-16 01:05:43
+  My_Project\My_Project.ana\ANA00001\My_Project.wdd           7142 o  2026-07-16 00:20:21
+  My_Project\My_Project.ana\ANA00001\My_Project.wda          20036 o  2026-07-16 00:20:21
+----- sous-dossiers du projet -----
+  [DIR] Backup   (2026-07-16 00:17)
+  [DIR] Exe   (2026-07-16 00:17)
+  [DIR] My_Project.ana   (2026-07-16 01:49)
+  [DIR] My_Project.cpl   (2026-07-16 00:17)
+  [DIR] Templates   (2026-07-16 00:17)

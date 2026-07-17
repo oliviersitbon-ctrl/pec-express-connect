@@ -1,0 +1,5 @@
+﻿Copie prod -> Desktop\Patients faite.
+Connexion OK (copie)
+Lecture schema KO: Exception lors de l'appel de « ExecuteReader » avec « 0 » argument(s) : « ERROR [01000] Impossible d'accéder au fichier.
+--- Recherche des ecritures avec un COMMENTAIRE non vide (30 plus recentes) ---
+Requete memo KO: Exception lors de l'appel de « ExecuteReader » avec « 0 » argument(s) : « ERROR [01000] Impossible d'accéder au fichier.

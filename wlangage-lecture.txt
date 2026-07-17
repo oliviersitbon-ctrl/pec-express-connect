@@ -1,0 +1,34 @@
+// ===== ETAPE 1 : LECTURE (sans risque) =====
+// Colle ce code dans l'evenement "Clic" d'un bouton, puis GO.
+// Il ouvre la COPIE de ACTES_2, liste les champs, et cherche le champ memo + son contenu.
+
+sFic is string = "C:\Users\Utilisateur\Desktop\Patients\ACTES_2.fic"
+sOut is string = ""
+
+IF HDeclareExternal(sFic, "AX") = False THEN
+	sOut = "HDeclareExternal ECHEC : " + HErrorInfo()
+ELSE
+	sListe is string = HListItem("AX")
+	sOut = "=== Champs de ACTES_2 ===" + CR
+	sOut += Replace(sListe, TAB, CR) + CR + CR
+	sOut += "=== Recherche d'un memo non vide (300 dernieres ecritures) ===" + CR
+	n is int = 0
+	HReadLast("AX")
+	WHILE HOut("AX") = False AND n < 300
+		n++
+		sRub is string
+		FOR EACH STRING sRub OF sListe SEPARATOR TAB
+			sVal is string = {"AX." + sRub}
+			IF Position(sVal, "Remarque") > 0 OR Position(sVal, ".pdf") > 0 THEN
+				sOut += "cle=" + {"AX.ACTE_CLE_UNIQUE"} + "  CHAMP=" + sRub + "  = [" + sVal + "]" + CR
+			END
+		END
+		HReadPrevious("AX")
+	END
+	IF Position(sOut, "CHAMP=") = 0 THEN
+		sOut += "(aucun memo detecte dans les 300 dernieres - on elargira la recherche)" + CR
+	END
+END
+
+fSaveText("C:\Users\Utilisateur\Desktop\pec-express-connect\_wl-lecture.txt", sOut)
+Info("Termine - envoie-moi _wl-lecture.txt")

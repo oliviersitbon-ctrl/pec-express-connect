@@ -1,0 +1,5 @@
+﻿Cible: \\PANO\wlogos2\Patients\LIENS\1720\Devis-1105.pdf
+Fenetre PDF hwnd=1513018
+Nom ecrit dans le champ.
+Enregistrer clique.
+OK FICHIER PRESENT: \\PANO\wlogos2\Patients\LIENS\1720\Devis-1105.pdf  (115259 octets, 07/15/2026 21:06:49)

@@ -31,9 +31,15 @@ let _currentDevisInfo = null;
 let _detectionInflight = false;
 let _attachedParentHwnd = null; // HWND du parent Logos auquel on est attache
 let _suspended = false; // quand true: overlay masque + detection en pause (ex: pendant l'impression auto)
+let _pollTimer = null; // revérification periodique (filet de securite du hook foreground)
 
 const OVERLAY_WIDTH = 300;
 const OVERLAY_HEIGHT = 32;
+// Le hook foreground ne se declenche PAS quand on change de page A L'INTERIEUR
+// de Logos (la fenetre top-level ne change pas). On re-verifie donc l'etat a
+// intervalle regulier pour masquer l'overlay des qu'on quitte la page Devis
+// (et pour le faire disparaitre proprement si Logos se ferme sans event final).
+const POLL_MS = 1500;
 
 /**
  * Cree la fenetre overlay (cachee au demarrage).
@@ -81,105 +87,65 @@ function createOverlay() {
  * les coordonnees actuelles de Logos. Pas de SetParent (qui casse le rendu
  * Electron transparent), mais re-positionnement frequent via WinEvent.
  */
-// Repère, en coordonnées ÉCRAN, le bouton « Imprimer » (pour l'axe X) et
-// « Éclater le devis » (pour l'axe Y) dans la fenêtre devis Logos au premier
-// plan. Ancrage STABLE (indépendant du haut de fenêtre, qui varie selon l'état).
-const PS_FIND_ANCHORS = String.raw`
-Add-Type @"
-using System;
-using System.Text;
-using System.Runtime.InteropServices;
-public class OA {
-  [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc cb, IntPtr l);
-  [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr p, EnumProc cb, IntPtr l);
-  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
-  [DllImport("user32.dll", CharSet=CharSet.Auto)] public static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
-  [DllImport("user32.dll", CharSet=CharSet.Auto)] public static extern int GetClassName(IntPtr h, StringBuilder s, int n);
-  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint p);
-  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
-  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
-  public delegate bool EnumProc(IntPtr h, IntPtr l);
-  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
-}
-"@ -ErrorAction SilentlyContinue
-$proc = Get-Process -Name "LOGOS_w" -ErrorAction SilentlyContinue
-if (-not $proc) { Write-Output '{"ok":false}'; exit 0 }
-$logosPid = $proc.Id
-$fg = [OA]::GetForegroundWindow(); $fgPid = 0
-[OA]::GetWindowThreadProcessId($fg, [ref]$fgPid) | Out-Null
-if ($fgPid -ne $logosPid) { Write-Output '{"ok":false}'; exit 0 }
-$script:pr = $null; $script:ec = $null
-$cbChild = [OA+EnumProc]{ param($h,$l)
-  $cls = New-Object System.Text.StringBuilder(64); [OA]::GetClassName($h,$cls,64) | Out-Null
-  if ($cls.ToString() -match "Button") {
-    $sb = New-Object System.Text.StringBuilder(128); [OA]::GetWindowText($h,$sb,128) | Out-Null
-    $t = $sb.ToString()
-    if ($t -match "Imprimer" -and -not $script:pr) { $r=New-Object OA+RECT; [OA]::GetWindowRect($h,[ref]$r)|Out-Null; $script:pr=$r }
-    if ($t -match "clater le devis" -and -not $script:ec) { $r=New-Object OA+RECT; [OA]::GetWindowRect($h,[ref]$r)|Out-Null; $script:ec=$r }
-  }
-  return $true
-}
-$cbTop = [OA+EnumProc]{ param($h,$l)
-  if ([OA]::IsWindowVisible($h)) {
-    $pp=0; [OA]::GetWindowThreadProcessId($h,[ref]$pp)|Out-Null
-    if ($pp -eq $logosPid) { [OA]::EnumChildWindows($h,$cbChild,[IntPtr]::Zero)|Out-Null }
-  }
-  return $true
-}
-[OA]::EnumWindows($cbTop,[IntPtr]::Zero) | Out-Null
-$o = @{ ok = $true }
-if ($script:pr) { $o.pLeft=$script:pr.Left; $o.pRight=$script:pr.Right }
-if ($script:ec) { $o.eBottom=$script:ec.Bottom; $o.eTop=$script:ec.Top }
-Write-Output (ConvertTo-Json $o -Compress)
-`;
+// Ecart vertical sous la ligne de la rangee "Ajouter alternative / Creer
+// alternative / Eclater le devis / Voir les a faire". Le bas du bouton "Eclater
+// le devis" coincide avec ce trait -> 0 = bord SUPERIEUR de l'overlay pile sur
+// la ligne (colle dessous). Ajustable si besoin (valeur positive = plus bas).
+const ROW_GAP_BELOW = 0;
+const PRINTER_GAP_BELOW = 12; // repli : sous l'imprimante
+const RIGHT_MARGIN = 8;       // marge par rapport au bord droit de la fenetre
 
-function findDevisToolbarAnchors() {
-  return new Promise((resolve) => {
-    const { spawn } = require('child_process');
-    const proc = spawn('powershell.exe', [
-      '-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden',
-      '-ExecutionPolicy', 'Bypass', '-Command', PS_FIND_ANCHORS,
-    ], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
-    let out = '';
-    proc.stdout.on('data', (d) => (out += d.toString('utf8')));
-    const to = setTimeout(() => { try { proc.kill(); } catch (e) {} resolve(null); }, 2500);
-    proc.on('close', () => {
-      clearTimeout(to);
-      try {
-        const line = out.trim().split('\n').filter((l) => l.trim().startsWith('{')).pop();
-        resolve(line ? JSON.parse(line) : null);
-      } catch (e) { resolve(null); }
-    });
-    proc.on('error', () => { clearTimeout(to); resolve(null); });
-  });
-}
-
-async function positionOverlayAbsolute(logos) {
-  if (!_overlayWin || _overlayWin.isDestroyed()) return;
-  if (!logos || typeof logos.logosLeft !== 'number') return;
-  // Fallback : coin haut-droit de la fenêtre (si l'ancrage boutons échoue).
-  let x = logos.logosLeft + logos.logosWidth - OVERLAY_WIDTH - 6;
-  let y = logos.logosTop + 44;
+/**
+ * Convertit un point en pixels PHYSIQUES ecran vers des pixels LOGIQUES (DIP),
+ * pour que le positionnement reste correct meme quand Windows est en mise a
+ * l'echelle 125%/150% (setBounds attend des DIP, GetWindowRect renvoie du
+ * physique). En 100% ou si l'API n'existe pas -> identite.
+ */
+function toDip(pt) {
   try {
-    const a = await findDevisToolbarAnchors();
-    if (a && a.ok) {
-      // X : le bord droit des boutons un PEU à gauche de l'imprimante.
-      if (typeof a.pRight === 'number') x = Math.round(a.pRight) - OVERLAY_WIDTH - 8;
-      // Y : 10 px SOUS le bouton « Éclater le devis ».
-      if (typeof a.eBottom === 'number') y = Math.round(a.eBottom) + 10;
+    if (screen && typeof screen.screenToDipPoint === 'function') {
+      return screen.screenToDipPoint(pt);
     }
   } catch (e) {}
+  return pt;
+}
+
+function positionOverlayAbsolute(logos) {
+  if (!_overlayWin || _overlayWin.isDestroyed()) return;
+  if (!logos || typeof logos.logosLeft !== 'number') return;
+
+  // Bord droit de reference = bord droit de la fenetre devis (coords physiques).
+  const rightEdgePhysical = logos.logosLeft + logos.logosWidth - RIGHT_MARGIN;
+
+  // Ancre verticale, par ordre de preference :
+  //  1) sous la rangee "Eclater le devis..." (cible demandee)
+  //  2) repli : sous l'imprimante
+  //  3) repli : ancien coin haut-droit
+  let topPhysical;
+  if (typeof logos.rowBottom === 'number') {
+    topPhysical = logos.rowBottom + ROW_GAP_BELOW;
+  } else if (typeof logos.printerBottom === 'number') {
+    topPhysical = logos.printerBottom + PRINTER_GAP_BELOW;
+  } else {
+    topPhysical = logos.logosTop + 44;
+  }
+
+  // Physique -> logique, PUIS on applique la largeur (deja en DIP) pour aligner
+  // le bord droit de l'overlay sur le bord droit de la fenetre.
+  const dip = toDip({ x: Math.round(rightEdgePhysical), y: Math.round(topPhysical) });
+  const x = Math.round(dip.x - OVERLAY_WIDTH);
+  const y = Math.round(dip.y);
   try {
     _overlayWin.setBounds({ x, y, width: OVERLAY_WIDTH, height: OVERLAY_HEIGHT });
   } catch (e) {}
 }
 
-async function showOverlay(logos) {
+function showOverlay(logos) {
   if (!_overlayWin || _overlayWin.isDestroyed()) createOverlay();
   if (!_overlayWin) return;
-  // Repositionner avant d'afficher (ancrage stable sur imprimante + « Éclater »)
+  // Repositionner avant d'afficher (coords absolues ecran calculees depuis Logos)
   if (logos && typeof logos.logosLeft === 'number') {
-    await positionOverlayAbsolute(logos);
+    positionOverlayAbsolute(logos);
   }
   if (!_overlayWin.isVisible()) {
     _overlayWin.showInactive();
@@ -215,17 +181,29 @@ async function refreshDevisDetection() {
   try {
     const r = await detectDevisPage();
 
-    if (r.reason === 'logos-not-running') {
-      // Logos n'est pas en avant -> cacher completement
-      log(`Logos = absent | raison=${r.reason}`);
+    // REGLE UNIQUE D'AFFICHAGE : l'overlay n'apparait QUE lorsqu'on est
+    // reellement sur la page Devis de Logos (r.active === true).
+    // Tous les autres cas -> masquage complet :
+    //   - logos-not-running    : Logos ferme
+    //   - logos-not-foreground : Logos ouvert mais une autre appli est devant
+    //   - no-devis-window      : Logos devant mais autre page (fiche, schema, actes...)
+    //   - busy/timeout/parse-error/... : etat transitoire -> on masque par securite
+    // => plus de "boutons gris" fantomes hors page devis ou Logos ferme.
+    if (!r || !r.active || r.devisFocused === false) {
+      if (r && r.active && r.devisFocused === false) {
+        log('Overlay masque : fenetre Devis ouverte mais pas au premier plan (focus ailleurs)');
+      } else if (r && r.reason && r.reason !== 'busy') {
+        log(`Overlay masque (pas page Devis) | raison=${r.reason}`);
+      }
       _currentDevisInfo = null;
       hideOverlay();
       return;
     }
 
-    if (r.active && r.devisId && r.patient) {
-      // Sur la page Devis UNIQUEMENT : on affiche l'overlay (grisé si devis vide).
-      await showOverlay(r);
+    // On est bien sur la page Devis ET elle est au premier plan -> afficher.
+    showOverlay(r);
+
+    if (r.devisId && r.patient) {
       // Page Devis detectee, verifier que le devis a des actes en RAM
       // IMPORTANT: filtrer par nom patient pour eviter de lire un vieux devis cache
       let hasActes = false;
@@ -266,11 +244,11 @@ async function refreshDevisDetection() {
         updateOverlayInfo({ enabled: false, reason: 'Devis vide' });
       }
     } else {
-      // PAS sur la page Devis -> on MASQUE complètement l'overlay (plus de bouton
-      // grisé qui traîne sur la fiche patient ou ailleurs).
-      log(`Logos foreground mais pas page Devis -> OVERLAY CACHE | raison=${r.reason || 'unknown'}`);
+      // Sur la page Devis mais patient/devis non encore identifie -> bouton grise
+      // (affiche, car on EST bien sur la page devis, mais non actionnable).
+      log(`Logos page Devis = OUI mais patient non identifie -> BOUTON GRISE | raison=${r.reason || 'no-patient'}`);
       _currentDevisInfo = null;
-      hideOverlay();
+      updateOverlayInfo({ enabled: false, reason: 'Devis' });
     }
   } catch (e) {
     log('refreshDevisDetection erreur: ' + e.message);
@@ -369,6 +347,26 @@ function stopWatcher() {
 }
 
 /**
+ * Filet de securite : re-verifie l'etat Logos a intervalle regulier, en plus
+ * du hook foreground evenementiel. Necessaire car passer de la page Devis a une
+ * autre page DANS Logos ne change pas la fenetre top-level -> aucun event
+ * foreground -> sans ce poll, l'overlay resterait affiche hors page Devis.
+ * Les gardes _detectionInflight / _detectorBusy evitent tout empilement.
+ */
+function startPoll() {
+  if (_pollTimer) return;
+  _pollTimer = setInterval(() => {
+    if (_suspended) return;
+    refreshDevisDetection();
+  }, POLL_MS);
+  log('Poll de securite overlay demarre (' + POLL_MS + 'ms)');
+}
+
+function stopPoll() {
+  if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+}
+
+/**
  * Handler IPC: appele quand l'utilisateur clique sur "Lancer la PEC"
  */
 function setupIpcHandlers() {
@@ -433,6 +431,7 @@ function startOverlay(onLancerPec) {
   createOverlay();
   setupIpcHandlers();
   startWatcher();
+  startPoll();
 }
 
 /**
@@ -440,6 +439,7 @@ function startOverlay(onLancerPec) {
  */
 function stopOverlay() {
   stopWatcher();
+  stopPoll();
   if (_overlayWin && !_overlayWin.isDestroyed()) {
     _overlayWin.destroy();
     _overlayWin = null;

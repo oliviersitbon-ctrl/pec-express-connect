@@ -1,0 +1,20 @@
+// ===== ETAPE 1 : LECTURE (sans risque) =====
+// Colle ce code dans l'evenement "Clic" d'un bouton, puis lance avec GO.
+
+bOK is boolean = HDeclareExternal("C:\Users\Utilisateur\Desktop\Patients\ACTES_2.fic", "AX")
+sRes is string = ""
+
+IF bOK = False THEN
+	sRes = "HDeclareExternal ECHEC : " + HErrorInfo()
+ELSE
+	sRes = "OK. Nb items = " + HNbItem("AX") + CR
+	sRes += "----- Liste des champs -----" + CR
+	FOR i = 1 TO HNbItem("AX")
+		sNom is string = HItemName("AX", i)
+		sType is string = HItemType("AX", sNom)
+		sRes += i + " : " + sNom + "   [" + sType + "]" + CR
+	END
+END
+
+fSaveText("C:\Users\Utilisateur\Desktop\pec-express-connect\_wl-items.txt", sRes)
+Info("Termine - envoie-moi _wl-items.txt")

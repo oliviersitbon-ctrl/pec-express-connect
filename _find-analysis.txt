@@ -1,0 +1,19 @@
+﻿Analyses .wdd trouvees : 8
+      7142 o  C:\My Projects\My_Project\My_Project.ana\ANA00001\My_Project.wdd
+      7158 o  C:\My Projects\My_Project\My_Project.ana\ANA00002\My_Project.wdd
+      7144 o  C:\My Projects\My_Project\My_Project.ana\ANA00003\My_Project.wdd
+      7158 o  C:\My Projects\My_Project\My_Project.ana\LASTGEN\My_Project.wdd
+      7144 o  C:\My Projects\My_Project\My_Project.ana\My_Project.wdd
+      7144 o  C:\My Projects\My_Project\My_Project.wdd
+    328823 o  C:\wlogos1\LOGOSWS1.WDD
+     39706 o  C:\wlogos1\SESAME.WDD
+
+===== Test ODBC de chaque analyse sur ACTES_2 =====
+  [ouvre pas ACTES_2] C:\My Projects\My_Project\My_Project.ana\ANA00001\My_Project.wdd  -> Exception lors de l'appel de « ExecuteReader » avec « 0 » argument(s) : « ERROR [01000] Impossible d'accéder au fichier.
+  [ouvre pas ACTES_2] C:\My Projects\My_Project\My_Project.ana\ANA00002\My_Project.wdd  -> Exception lors de l'appel de « ExecuteReader » avec « 0 » argument(s) : « ERROR [01000] Impossible d'accéder au fichier.
+  [ouvre pas ACTES_2] C:\My Projects\My_Project\My_Project.ana\ANA00003\My_Project.wdd  -> Exception lors de l'appel de « ExecuteReader » avec « 0 » argument(s) : « ERROR [01000] Impossible d'accéder au fichier.
+  [ouvre pas ACTES_2] C:\My Projects\My_Project\My_Project.ana\LASTGEN\My_Project.wdd  -> Exception lors de l'appel de « ExecuteReader » avec « 0 » argument(s) : « ERROR [01000] Impossible d'accéder au fichier.
+  [ouvre pas ACTES_2] C:\My Projects\My_Project\My_Project.ana\My_Project.wdd  -> Exception lors de l'appel de « ExecuteReader » avec « 0 » argument(s) : « ERROR [01000] Impossible d'accéder au fichier.
+  [ouvre pas ACTES_2] C:\My Projects\My_Project\My_Project.wdd  -> Exception lors de l'appel de « ExecuteReader » avec « 0 » argument(s) : « ERROR [01000] Impossible d'accéder au fichier.
+  [ouvre pas ACTES_2] C:\wlogos1\LOGOSWS1.WDD  -> Exception lors de l'appel de « ExecuteReader » avec « 0 » argument(s) : « ERROR [01000] Impossible d'accéder au fichier.
+  [ouvre pas ACTES_2] C:\wlogos1\SESAME.WDD  -> Exception lors de l'appel de « ExecuteReader » avec « 0 » argument(s) : « ERROR [01000] Impossible d'accéder au fichier.

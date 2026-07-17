@@ -1,0 +1,6 @@
+﻿Connexion OK (copie)
+Avant: 0 enregistrement(s) patient 9999
+INSERT execute (lignes affectees=1)
+Apres: 1 enregistrement(s) patient 9999
+==> SUCCES : l'ODBC a bien ECRIT dans ACTES_2 !
+  cle=25963 num=9999 date=20260716 heure=0200 prat=OS
