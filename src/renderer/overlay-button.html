@@ -53,8 +53,7 @@
     }
 
     // Rapporte au main la zone cliquable (union des boutons visibles), en px CSS
-    // relatifs a la fenetre. Le main s'en sert pour pre-armer la capture souris
-    // (poll du curseur) -> le 1er clic est pris en compte.
+    // relatifs a la fenetre -> le main pre-arme la capture souris (1er clic OK).
     function reportHotRect() {
       requestAnimationFrame(() => {
         try {
@@ -91,11 +90,9 @@
     bPec.addEventListener('click', () => fire('pec'));
     bDev.addEventListener('click', () => fire('devis'));
 
-    // Click-through : la capture souris est desormais pilotee par le MAIN PROCESS
-    // (poll du curseur, cf. overlay-pec.js startCursorPoll), qui l'active AVANT le
-    // clic des que le curseur entre dans la zone des boutons -> plus de "1er clic
-    // ignore". On ne fait donc plus de bascule reactive sur mouseenter/mouseleave
-    // (elle arrivait trop tard). On rapporte juste la geometrie des boutons.
+    // Click-through pilote par le MAIN PROCESS (poll du curseur, overlay-pec.js
+    // startCursorPoll) qui active la capture AVANT le clic -> plus de "1er clic
+    // ignore". On ne fait plus de bascule reactive sur mouseenter/mouseleave.
     window.addEventListener('resize', reportHotRect);
 
     if (window.cabflow && window.cabflow.onOverlayInfo) {

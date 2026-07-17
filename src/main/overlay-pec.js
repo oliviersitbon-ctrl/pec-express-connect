@@ -33,11 +33,6 @@ let _attachedParentHwnd = null; // HWND du parent Logos auquel on est attache
 let _suspended = false; // quand true: overlay masque + detection en pause (ex: pendant l'impression auto)
 
 // --- Capture souris pre-armee (fin du "1er clic ignore, 2e clic OK") ---
-// La fenetre est traversante (setIgnoreMouseEvents(true)) et ne redevenait
-// capturante que sur mouseenter cote renderer (aller-retour IPC). Windows decide
-// du click-through AU moment du mousedown : le 1er clic partait donc a travers
-// vers Logos, seul le 2e etait pris. Solution : le main process surveille la
-// position du curseur et bascule la capture AVANT le clic.
 let _hotRect = null;          // { x, y, w, h } px CSS relatifs a la fenetre (union des boutons visibles)
 let _cursorPollTimer = null;  // interval de surveillance du curseur
 let _lastIgnore = null;       // dernier etat applique (evite les appels redondants)
@@ -96,9 +91,8 @@ function positionOverlayAbsolute(logos) {
   if (!logos || typeof logos.logosLeft !== 'number') return;
   const x = logos.logosLeft + logos.logosWidth - OVERLAY_WIDTH - 6;
   // Ancre verticale : JUSTE SOUS la rangee "Ajouter alternative / Eclater le
-  // devis / Voir les a faire" (repere fiable de l'ecran devis) quand le
-  // detecteur la fournit ; sinon repli sur le haut de la fenetre (+44). Evite que
-  // les pastilles se posent sur la barre d'icones du haut de Logos.
+  // devis / Voir les a faire" quand le detecteur la fournit ; sinon repli sur le
+  // haut de la fenetre (+44). Evite les pastilles sur la barre d'icones du haut.
   let y;
   if (typeof logos.rowBottom === 'number' && logos.rowBottom > logos.logosTop) {
     y = logos.rowBottom + 2;
@@ -154,9 +148,8 @@ function cursorOverHotZone() {
 }
 
 /**
- * Surveille le curseur ~33x/s et pre-arme la capture souris. Le curseur survole
- * le bouton plusieurs dizaines de ms avant le clic -> la capture (ignore=false)
- * est deja active a l'instant du mousedown -> 1er clic OK. Cout negligeable.
+ * Surveille le curseur ~33x/s et pre-arme la capture souris AVANT le clic ->
+ * le 1er clic est pris en compte. Cout negligeable.
  */
 function startCursorPoll() {
   if (_cursorPollTimer) return;
@@ -204,10 +197,8 @@ async function refreshDevisDetection() {
     }
 
     // N'AFFICHER l'overlay QUE lorsque l'EDITEUR DE DEVIS est reellement au
-    // premier plan (r.devisFocused). Si un devis est ouvert en arriere-plan mais
-    // que le praticien est sur l'Etat civil / le schema / les actes, la fenetre
-    // devis existe (r.active=true) mais n'a PAS le focus -> on CACHE (sinon les
-    // pastilles apparaissent hors de la page devis, ce qui etait la regression).
+    // premier plan (r.devisFocused). Sinon (Etat civil / schema / actes, devis en
+    // arriere-plan) -> on CACHE (fin de la regression "boutons hors page devis").
     if (!(r.active && r.devisFocused && r.devisId && r.patient)) {
       log(`Pas sur l'editeur de devis -> OVERLAY CACHE | active=${r.active} focused=${r.devisFocused} raison=${r.reason || ''}`);
       _currentDevisInfo = null;
@@ -367,13 +358,11 @@ function setupIpcHandlers() {
   // renderer. Quand le curseur quitte les boutons -> ignore=true (traversant)
   // -> les icones Logos dessous redeviennent cliquables.
   ipcMain.on('overlay-set-ignore', (event, ignore) => {
-    // Conserve pour compat : la source de verite est desormais le poll curseur
-    // (startCursorPoll), qui pre-arme la capture avant le clic.
+    // La source de verite est desormais le poll curseur (startCursorPoll).
     applyIgnore(!!ignore);
   });
 
-  // Rectangle chaud (union des boutons visibles) rapporte par le renderer, en px
-  // CSS relatifs a la fenetre. Utilise par le poll pour savoir quand capter.
+  // Rectangle chaud (union des boutons visibles) rapporte par le renderer.
   ipcMain.on('overlay-hot-rect', (event, rect) => {
     if (rect && typeof rect.x === 'number' && typeof rect.w === 'number' && rect.w > 0 && rect.h > 0) {
       _hotRect = { x: rect.x, y: rect.y, w: rect.w, h: rect.h };
