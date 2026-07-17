@@ -1409,6 +1409,26 @@ async function readAndOpenCabFlow(docName, intent) {
           } catch (ePdf) {
             log('[PEC] Lecture PDF devis (non bloquant): ' + ePdf.message);
           }
+          // Dépose le PDF officiel Logos côté serveur → il sera rattaché à la PEC
+          // créée par le wizard (visible dans l'espace patient), exactement comme
+          // la voie « Envoi de devis ». Rangé par cabinet + n° de dossier Logos.
+          try {
+            if (pecPdfB64 && data.logosNumero != null) {
+              const apiKeyStash = (require('./config-manager').getConfig() || {}).apiKey || '';
+              if (apiKeyStash) {
+                const fetchS = require('node-fetch');
+                const FormDataS = require('form-data');
+                const fdS = new FormDataS();
+                fdS.append('file', Buffer.from(pecPdfB64, 'base64'), { filename: pecPdfName || 'devis.pdf', contentType: 'application/pdf' });
+                fdS.append('logos_numero', String(data.logosNumero));
+                const rS = await fetchS(site + '/api/desktop/devis-pdf', {
+                  method: 'POST', body: fdS, headers: { ...fdS.getHeaders(), 'x-api-key': apiKeyStash },
+                });
+                log('[PEC] Depot PDF devis (espace patient) -> ' + (rS.ok ? 'OK' : ('HTTP ' + rS.status)));
+              }
+            }
+          } catch (eStash) { log('[PEC] Depot PDF devis (non bloquant): ' + eStash.message); }
+
           const parsedPec = await fetchServerParsedDevis(site, pecPdfB64, pecPdfName);
           if (parsedPec && Array.isArray(parsedPec.actes) && parsedPec.actes.length) {
             data.actes = parsedPec.actes; // actes parsés serveur = source de vérité (panier, AMO…)
@@ -3148,7 +3168,19 @@ if (!gotTheLock) {
         overlay.setLogger(log);
         overlay.startOverlay(async (devisInfo, intent) => {
           const doc = devisInfo && devisInfo.devisId != null ? String(devisInfo.devisId) : null;
-          const ok = await readAndOpenCabFlow(doc, intent || 'pec');
+          // Réessaie automatiquement : CabFlowReader.exe échoue parfois de façon
+          // TRANSITOIRE (mémoire Logos pas encore prête, timing) et renvoie false
+          // AVANT toute ouverture de MDD (tous les resolve(false) sont en amont de
+          // openPecWizard) -> réessayer ne peut pas ouvrir MDD en double, et évite
+          // à l'utilisateur d'avoir à recliquer jusqu'à ce que ça passe.
+          let ok = false;
+          for (let attempt = 1; attempt <= 3 && !ok; attempt++) {
+            ok = await readAndOpenCabFlow(doc, intent || 'pec');
+            if (!ok && attempt < 3) {
+              log('[OVERLAY] Lancement ' + (intent || 'pec') + ' tentative ' + attempt + '/3 echouee -> nouvel essai');
+              await new Promise((r) => setTimeout(r, 450));
+            }
+          }
           return { success: ok };
         });
         log('[STARTUP] Overlay Logos demarre');
