@@ -87,24 +87,54 @@ function createOverlay() {
  * les coordonnees actuelles de Logos. Pas de SetParent (qui casse le rendu
  * Electron transparent), mais re-positionnement frequent via WinEvent.
  */
-// Espace sous le bouton imprimante : on descend l'overlay SOUS le petit
-// separateur horizontal qui suit l'imprimante (au lieu de la barre de titre).
-const PRINTER_GAP_BELOW = 12;
+// Ecart vertical sous la ligne de la rangee "Ajouter alternative / Creer
+// alternative / Eclater le devis / Voir les a faire". Le bas du bouton "Eclater
+// le devis" coincide avec ce trait -> 0 = bord SUPERIEUR de l'overlay pile sur
+// la ligne (colle dessous). Ajustable si besoin (valeur positive = plus bas).
+const ROW_GAP_BELOW = 0;
+const PRINTER_GAP_BELOW = 12; // repli : sous l'imprimante
+const RIGHT_MARGIN = 8;       // marge par rapport au bord droit de la fenetre
+
+/**
+ * Convertit un point en pixels PHYSIQUES ecran vers des pixels LOGIQUES (DIP),
+ * pour que le positionnement reste correct meme quand Windows est en mise a
+ * l'echelle 125%/150% (setBounds attend des DIP, GetWindowRect renvoie du
+ * physique). En 100% ou si l'API n'existe pas -> identite.
+ */
+function toDip(pt) {
+  try {
+    if (screen && typeof screen.screenToDipPoint === 'function') {
+      return screen.screenToDipPoint(pt);
+    }
+  } catch (e) {}
+  return pt;
+}
 
 function positionOverlayAbsolute(logos) {
   if (!_overlayWin || _overlayWin.isDestroyed()) return;
   if (!logos || typeof logos.logosLeft !== 'number') return;
-  let x, y;
-  if (typeof logos.printerBottom === 'number' && typeof logos.printerRight === 'number') {
-    // Ancrage sous l'imprimante : bord droit de l'overlay aligne sur le bord
-    // droit du bouton imprimante, juste sous le separateur.
-    y = logos.printerBottom + PRINTER_GAP_BELOW;
-    x = logos.printerRight - OVERLAY_WIDTH;
+
+  // Bord droit de reference = bord droit de la fenetre devis (coords physiques).
+  const rightEdgePhysical = logos.logosLeft + logos.logosWidth - RIGHT_MARGIN;
+
+  // Ancre verticale, par ordre de preference :
+  //  1) sous la rangee "Eclater le devis..." (cible demandee)
+  //  2) repli : sous l'imprimante
+  //  3) repli : ancien coin haut-droit
+  let topPhysical;
+  if (typeof logos.rowBottom === 'number') {
+    topPhysical = logos.rowBottom + ROW_GAP_BELOW;
+  } else if (typeof logos.printerBottom === 'number') {
+    topPhysical = logos.printerBottom + PRINTER_GAP_BELOW;
   } else {
-    // Repli si l'imprimante n'a pas ete localisee : ancien coin haut-droit.
-    x = logos.logosLeft + logos.logosWidth - OVERLAY_WIDTH - 6;
-    y = logos.logosTop + 44;
+    topPhysical = logos.logosTop + 44;
   }
+
+  // Physique -> logique, PUIS on applique la largeur (deja en DIP) pour aligner
+  // le bord droit de l'overlay sur le bord droit de la fenetre.
+  const dip = toDip({ x: Math.round(rightEdgePhysical), y: Math.round(topPhysical) });
+  const x = Math.round(dip.x - OVERLAY_WIDTH);
+  const y = Math.round(dip.y);
   try {
     _overlayWin.setBounds({ x, y, width: OVERLAY_WIDTH, height: OVERLAY_HEIGHT });
   } catch (e) {}
