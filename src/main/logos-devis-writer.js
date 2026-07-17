@@ -15,8 +15,16 @@ let _logger = null;
 function setLogger(fn) { _logger = fn; }
 function log(m) { const s = `[LOGOS-WRITER] ${m}`; if (_logger) _logger(s); else console.log(s); }
 
-// Racine des documents lies dans Logos (\\PANO\wlogos2\Patients\LIENS monte en L:)
-const LIENS_BASE = 'L:\\Patients\\LIENS';
+const { getConfig } = require('./config-manager');
+// Racine data Logos decouverte par CabFlow (UNC \\PANO\wlogos2\Patients chez OS,
+// lettre ou UNC ailleurs), memorisee en config. Repli L:\Patients (historique).
+function patientsRoot() {
+  try {
+    const d = (getConfig() || {}).logosPatientsDir;
+    if (d && String(d).trim()) return String(d).trim().replace(/[\\/]+$/, '');
+  } catch (e) {}
+  return 'L:\\Patients';
+}
 const RESULT_FILE = 'C:\\ProgramData\\PecExpress\\logos-write-result.txt';
 
 function exePath() {
@@ -44,17 +52,18 @@ function exePath() {
 function writeSignedDoc(patientId, pdfBuffer, filename, label, praticien = 'OS') {
   return new Promise((resolve, reject) => {
     try {
-      const num = String(patientId);
-      // 1) poser le PDF dans LIENS\<patient>\
-      const dir = path.join(LIENS_BASE, num);
+      const num  = String(patientId);
+      const root = patientsRoot();
+      // 1) poser le PDF dans <root>\LIENS\<patient>\
+      const dir = path.join(root, 'LIENS', num);
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(path.join(dir, filename), pdfBuffer);
       log(`PDF pose: ${path.join(dir, filename)} (${pdfBuffer.length} o)`);
 
-      // 2) appeler l'exe WinDev
+      // 2) appeler l'exe WinDev, en lui passant le dossier data en 5e argument
       const exe = exePath();
-      log(`Appel: ${exe} ${num} "${filename}" "${label}" ${praticien}`);
-      execFile(exe, [num, filename, label, praticien], { windowsHide: true }, (err) => {
+      log(`Appel: ${exe} ${num} "${filename}" "${label}" ${praticien} "${root}"`);
+      execFile(exe, [num, filename, label, praticien, root], { windowsHide: true }, (err) => {
         let result = '';
         try { result = fs.readFileSync(RESULT_FILE, 'utf8').trim(); } catch (e) {}
         if (err) { log(`Erreur execFile: ${err.message}`); return reject(err); }

@@ -737,13 +737,7 @@ async function refreshModules() {
     const cfg = cm.getConfig() || {};
     const apiKey = cfg.apiKey || '';
     if (!apiKey) return; // poste pas encore appaire
-    // IMPORTANT : les endpoints /api/desktop/* sont TOUJOURS servis par le
-    // backend MDD (app.mondevisdentaire.com), y compris pour un cabinet lie a
-    // Labora dont urls.site pointe vers app.laboradental.fr (front, sans ces
-    // routes). Utiliser urls.site ici faisait echouer le whoami -> l'etat des
-    // modules n'etait jamais rafraichi (bouton non masque apres desactivation).
-    // On aligne donc sur l'appairage et les autres appels desktop = CONFIG.siteUrl.
-    const site = CONFIG.siteUrl;
+    const site = (cfg.urls && cfg.urls.site) || CONFIG.siteUrl;
     const fetch = require('node-fetch');
     const res = await fetch(site + '/api/desktop/whoami', { headers: { 'x-api-key': apiKey } });
     const json = await res.json().catch(() => ({}));
@@ -753,71 +747,6 @@ async function refreshModules() {
     }
   } catch (e) {
     log('[MODULES] refresh echec (non bloquant): ' + e.message);
-  }
-}
-
-/**
- * Envoie le QUESTIONNAIRE MEDICAL sur la tablette du cabinet pour le patient
- * affiche dans la fiche Logos (bouton flottant "Questionnaire MD").
- *
- * @param {{nom:string, prenom?:string, numero?:string}} fiche  identite lue
- *        depuis le titre de la fenetre patient (nom/prenom).
- * @returns {Promise<{ok:boolean, error?:string, patient?:string}>}
- *
- * Appelle POST /api/questionnaire/enqueue (auth x-api-key) sur le backend MDD.
- * La DDN (requise pour l'acces tablette) est lue dans la RAM de Logos.
- */
-async function sendQuestionnaireToTablet(fiche) {
-  try {
-    const cm = require('./config-manager');
-    const cfg = cm.getConfig() || {};
-    const apiKey = cfg.apiKey || '';
-    if (!apiKey) return { ok: false, error: 'poste non appaire' };
-    const nom = (fiche && fiche.nom || '').trim();
-    const prenom = (fiche && fiche.prenom || '').trim();
-    const numero = (fiche && fiche.numero != null) ? String(fiche.numero).trim() : '';
-    if (!nom) return { ok: false, error: 'nom patient manquant' };
-
-    // DDN : lue DIRECTEMENT dans le champ de la fiche affichée (fiable, liée au
-    // patient à l'écran). Repli sur la lecture RAM si jamais absente.
-    let dob = (fiche && fiche.dob) ? String(fiche.dob).trim() : null;
-    let email = null;
-    if (!dob) {
-      try {
-        const mem = require('./logos-memory-reader');
-        const id = await mem.readPatientIdentity({ nom });
-        if (id) { dob = id.dob || null; email = id.email || null; }
-      } catch (e) { log('[QUESTIONNAIRE] lecture identite (RAM) echec: ' + e.message); }
-    }
-
-    if (!dob) {
-      log('[QUESTIONNAIRE] DDN introuvable pour ' + nom);
-      return { ok: false, error: 'date de naissance introuvable' };
-    }
-
-    const fetch = require('node-fetch');
-    const res = await fetch(CONFIG.siteUrl + '/api/questionnaire/enqueue', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
-      // source_system='logos' + n° dossier LogosW => le questionnaire rempli
-      // sera réinjecté dans CE dossier Logos (questionnaire-watcher).
-      body: JSON.stringify({
-        patient: { nom, prenom, dateNaissance: dob, email },
-        sourceSystem: 'logos',
-        sourcePatientRef: numero || null,
-      }),
-    });
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok || !json.ok) {
-      const err = (json && json.error) || ('HTTP ' + res.status);
-      log('[QUESTIONNAIRE] envoi echoue: ' + err);
-      return { ok: false, error: err };
-    }
-    log('[QUESTIONNAIRE] envoye tablette pour ' + prenom + ' ' + nom + ' (queue=' + (json.queueId || '?') + ')');
-    return { ok: true, patient: (prenom ? prenom + ' ' : '') + nom };
-  } catch (e) {
-    log('[QUESTIONNAIRE] erreur: ' + e.message);
-    return { ok: false, error: e.message };
   }
 }
 
@@ -1237,6 +1166,16 @@ async function readAndOpenCabFlow(docName, intent) {
         data.sourceSystem = 'logos';
         data.logosNumero = (mmoCtx.patientId != null) ? mmoCtx.patientId : null;
         data.patientsDir = mmoCtx.patientsDir || null; // pour retrouver le PDF officiel Logos
+        // Mémorise le dossier data Logos (per-cabinet) pour les retours de documents
+        // (watchers), qui n'ont pas de contexte devis. Écrit seulement si ça change.
+        if (mmoCtx.patientsDir) {
+          try {
+            const cmDir = require('./config-manager');
+            if (((cmDir.getConfig() || {}).logosPatientsDir) !== mmoCtx.patientsDir) {
+              cmDir.setOverride('logosPatientsDir', mmoCtx.patientsDir);
+            }
+          } catch (e) {}
+        }
         log('[CABFLOW] Patient: ' + data.nom + ' ' + data.prenom +
             ' | Devis: ' + data.devisId + ' | ' + (data.actes || []).length + ' actes' +
             ' | NIR: ' + (data.nir || 'ABSENT'));
@@ -1409,26 +1348,6 @@ async function readAndOpenCabFlow(docName, intent) {
           } catch (ePdf) {
             log('[PEC] Lecture PDF devis (non bloquant): ' + ePdf.message);
           }
-          // Dépose le PDF officiel Logos côté serveur → il sera rattaché à la PEC
-          // créée par le wizard (visible dans l'espace patient), exactement comme
-          // la voie « Envoi de devis ». Rangé par cabinet + n° de dossier Logos.
-          try {
-            if (pecPdfB64 && data.logosNumero != null) {
-              const apiKeyStash = (require('./config-manager').getConfig() || {}).apiKey || '';
-              if (apiKeyStash) {
-                const fetchS = require('node-fetch');
-                const FormDataS = require('form-data');
-                const fdS = new FormDataS();
-                fdS.append('file', Buffer.from(pecPdfB64, 'base64'), { filename: pecPdfName || 'devis.pdf', contentType: 'application/pdf' });
-                fdS.append('logos_numero', String(data.logosNumero));
-                const rS = await fetchS(site + '/api/desktop/devis-pdf', {
-                  method: 'POST', body: fdS, headers: { ...fdS.getHeaders(), 'x-api-key': apiKeyStash },
-                });
-                log('[PEC] Depot PDF devis (espace patient) -> ' + (rS.ok ? 'OK' : ('HTTP ' + rS.status)));
-              }
-            }
-          } catch (eStash) { log('[PEC] Depot PDF devis (non bloquant): ' + eStash.message); }
-
           const parsedPec = await fetchServerParsedDevis(site, pecPdfB64, pecPdfName);
           if (parsedPec && Array.isArray(parsedPec.actes) && parsedPec.actes.length) {
             data.actes = parsedPec.actes; // actes parsés serveur = source de vérité (panier, AMO…)
@@ -2821,18 +2740,8 @@ function setupIpcHandlers() {
   });
 
   // Modules actifs (PEC / Devis) - pilote l'affichage des boutons overlay.
-  // Renvoie l'etat EN CACHE (immediat). En parallele, si le cache a plus de 60s,
-  // on declenche un refresh serveur (non bloquant) : ainsi, quand le praticien
-  // est sur la page devis, une (des)activation de module dans l'admin se reflete
-  // en ~60s (le prochain poll de l'overlay reprend la valeur fraiche), au lieu
-  // d'attendre le refresh periodique de 15 min.
   ipcMain.handle('get-modules', () => {
     try {
-      const now = Date.now();
-      if (now - (refreshModules._lastAt || 0) > 60000) {
-        refreshModules._lastAt = now;
-        Promise.resolve().then(() => refreshModules()).catch(() => {});
-      }
       const m = (require('./config-manager').getConfig() || {}).modules || {};
       return { pec: m.pec !== false, devis: m.devis !== false };
     } catch (e) { return { pec: true, devis: true }; }
@@ -3168,34 +3077,12 @@ if (!gotTheLock) {
         overlay.setLogger(log);
         overlay.startOverlay(async (devisInfo, intent) => {
           const doc = devisInfo && devisInfo.devisId != null ? String(devisInfo.devisId) : null;
-          // Réessaie automatiquement : CabFlowReader.exe échoue parfois de façon
-          // TRANSITOIRE (mémoire Logos pas encore prête, timing) et renvoie false
-          // AVANT toute ouverture de MDD (tous les resolve(false) sont en amont de
-          // openPecWizard) -> réessayer ne peut pas ouvrir MDD en double, et évite
-          // à l'utilisateur d'avoir à recliquer jusqu'à ce que ça passe.
-          let ok = false;
-          for (let attempt = 1; attempt <= 3 && !ok; attempt++) {
-            ok = await readAndOpenCabFlow(doc, intent || 'pec');
-            if (!ok && attempt < 3) {
-              log('[OVERLAY] Lancement ' + (intent || 'pec') + ' tentative ' + attempt + '/3 echouee -> nouvel essai');
-              await new Promise((r) => setTimeout(r, 450));
-            }
-          }
+          const ok = await readAndOpenCabFlow(doc, intent || 'pec');
           return { success: ok };
         });
         log('[STARTUP] Overlay Logos demarre');
       } catch (eOv) {
         log('[STARTUP] Overlay non demarre: ' + eOv.message);
-      }
-
-      // Overlay flottant "Questionnaire MD" sur la page Fiche patient (Etat civil)
-      try {
-        const overlayFiche = require('./overlay-fiche');
-        overlayFiche.setLogger(log);
-        overlayFiche.startOverlay(async (fiche) => sendQuestionnaireToTablet(fiche));
-        log('[STARTUP] Overlay fiche (Questionnaire MD) demarre');
-      } catch (eF) {
-        log('[STARTUP] Overlay fiche non demarre: ' + eF.message);
       }
 
       // Module dashboard (fenetre tray + watcher temps reel DLL/Service)
@@ -3216,17 +3103,6 @@ if (!gotTheLock) {
         log('[STARTUP] Watcher retour docs signes demarre');
       } catch (eSw) {
         log('[STARTUP] Watcher retour docs signes non demarre (non bloquant): ' + eSw.message);
-      }
-
-      // Retour des QUESTIONNAIRES remplis : réinjecte le PDF du questionnaire
-      // dans le dossier LogosW d'origine. Poll MDD /api/desktop/questionnaire-pending.
-      try {
-        const qWatcher = require('./questionnaire-watcher');
-        qWatcher.start(log);
-        global._questionnaireWatcher = qWatcher;
-        log('[STARTUP] Watcher retour questionnaires demarre');
-      } catch (eQw) {
-        log('[STARTUP] Watcher retour questionnaires non demarre (non bloquant): ' + eQw.message);
       }
 
       // Trace Logos a l'envoi en signature : ecrit la ligne "PEC XX EUR RAC XX
