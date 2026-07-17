@@ -101,13 +101,16 @@ $cb = [LD+EnumProc]{ param($h, $l)
 [LD]::EnumWindows($cb, [IntPtr]::Zero) | Out-Null
 
 # 2. Identifier la 1ere fenetre B "devis active"
-#    Critere: title vide, taille proche 1914x871, contient >=3 marqueurs devis
+#    Critere: title vide + contient >=3 marqueurs devis (Imprimer, Eclater le
+#    devis, etc.). INDEPENDANT DE LA RESOLUTION : on ne filtre plus sur une
+#    taille codee en dur (1914x871) — un seuil minimal suffit, ce sont les
+#    marqueurs (boutons reels de l'ecran devis) qui font foi. Ainsi la detection
+#    fonctionne sur tout ecran / toute mise a l'echelle Windows.
 $markersRegex = "Imprimer|Devis isol.|Eclater le devis|Devis types|Assistant devis"
 $devisB = $null
 foreach ($w in $wins) {
     if ($w.Title.Length -gt 0) { continue }
-    if ($w.W -lt 1800 -or $w.W -gt 1950) { continue }
-    if ($w.H -lt 800 -or $w.H -gt 900) { continue }
+    if ($w.W -lt 900 -or $w.H -lt 500) { continue }  # simple garde anti mini-fenetre
     $markersFound = @()
     $cbB = [LD+EnumProc]{ param($h, $l)
         if ([LD]::IsWindowVisible($h)) {
@@ -196,21 +199,39 @@ if (-not $patientA) {
 $fgId = $fg.ToInt64()
 $devisFocused = ($fgId -eq $devisB.HWnd)
 
-# Localiser le bouton "Imprimer" DANS la fenetre devis (coords ECRAN) pour ancrer
-# l'overlay juste dessous (sous le petit separateur sous l'imprimante).
+# Localiser DANS la fenetre devis (coords ECRAN, une seule passe) :
+#  - le bouton "Imprimer" (reference historique)
+#  - le bouton "Eclater le devis" = rangee "Ajouter/Creer alternative/Eclater/
+#    Voir les a faire". C'est SOUS la ligne de cette rangee que l'overlay doit
+#    se placer. On prend son bas comme ancre -> robuste a la resolution.
+# Le TRAIT sous lequel poser l'overlay = bord inferieur de la barre d'outils
+# "Ajouter alternative / Creer alternative / Eclater le devis / Voir les a faire".
+# On prend le BAS LE PLUS BAS de ces boutons (toute la rangee) -> repere fiable
+# du trait, robuste a la resolution/echelle et a un bouton masque/renomme.
+# NB: on cible ces libelles precis pour NE PAS attraper le menu "Alternatives."
+# de la zone des actes, situe bien plus bas.
 $printer = $null
+$rowBottomMax = $null
+$rowRegex = "Ajouter alternative|Eclater le devis|Voir les"
 $cbP = [LD+EnumProc]{ param($h, $l)
-    if ($script:printer) { return $true }
     if ([LD]::IsWindowVisible($h)) {
         $cls = New-Object System.Text.StringBuilder(64)
         [LD]::GetClassName($h, $cls, 64) | Out-Null
         if ($cls.ToString() -match "Button") {
             $sb = New-Object System.Text.StringBuilder(128)
             [LD]::GetWindowText($h, $sb, 128) | Out-Null
-            if ($sb.ToString() -match "Imprimer") {
+            $t = $sb.ToString()
+            if (-not $script:printer -and $t -match "Imprimer") {
                 $pr = New-Object LD+RECT
                 [LD]::GetWindowRect($h, [ref]$pr) | Out-Null
                 $script:printer = [PSCustomObject]@{ L = $pr.Left; T = $pr.Top; R = $pr.Right; B = $pr.Bottom }
+            }
+            if ($t -match $rowRegex) {
+                $rr = New-Object LD+RECT
+                [LD]::GetWindowRect($h, [ref]$rr) | Out-Null
+                if (($null -eq $script:rowBottomMax) -or ($rr.Bottom -gt $script:rowBottomMax)) {
+                    $script:rowBottomMax = $rr.Bottom
+                }
             }
         }
     }
@@ -233,6 +254,10 @@ $result = @{
     printerTop = if ($printer) { $printer.T } else { $null }
     printerRight = if ($printer) { $printer.R } else { $null }
     printerBottom = if ($printer) { $printer.B } else { $null }
+    rowLeft = if ($rowBtn) { $rowBtn.L } else { $null }
+    rowTop = if ($rowBtn) { $rowBtn.T } else { $null }
+    rowRight = if ($rowBtn) { $rowBtn.R } else { $null }
+    rowBottom = if ($rowBtn) { $rowBtn.B } else { $null }
     logosLeft = $patientA.Left
     logosTop = $patientA.Top
     logosWidth = $patientA.W
