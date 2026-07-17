@@ -71,61 +71,61 @@ $fg = [FD]::GetForegroundWindow(); $fgPid = 0
 if ($fgPid -ne $pid0) { Write-Output '{"active":false,"reason":"logos-not-foreground"}'; exit 0 }
 $fgId = $fg.ToInt64()
 
-# Fenetre patient = top-level visible, titre "<num> - <NOM Prenom>", grande.
-$patient = $null
-$cb = [FD+EnumProc]{ param($h,$l)
-  if ($script:patient) { return $true }
+# 1) Collecter les fenetres top-level Logos visibles (titre + hwnd).
+$wins = New-Object System.Collections.ArrayList
+$cbTop = [FD+EnumProc]{ param($h,$l)
   if ([FD]::IsWindowVisible($h) -and -not [FD]::IsIconic($h)) {
     $pp=0; [FD]::GetWindowThreadProcessId($h,[ref]$pp) | Out-Null
     if ($pp -eq $pid0) {
       $sb=New-Object System.Text.StringBuilder(512); [FD]::GetWindowText($h,$sb,512) | Out-Null
-      $t=$sb.ToString()
-      if ($t -match '^(\d+)\s*-\s*(.+)$') {
-        $r=New-Object FD+RECT; [FD]::GetWindowRect($h,[ref]$r) | Out-Null
-        if (($r.Right-$r.Left) -gt 900 -and ($r.Bottom-$r.Top) -gt 500) {
-          $script:patient=[PSCustomObject]@{ HWnd=$h.ToInt64(); Num=$matches[1]; Name=$matches[2].Trim(); Fg=($h.ToInt64() -eq $fgId) }
+      $r=New-Object FD+RECT; [FD]::GetWindowRect($h,[ref]$r) | Out-Null
+      if (($r.Right-$r.Left) -gt 300 -and ($r.Bottom-$r.Top) -gt 200) {
+        [void]$script:wins.Add([PSCustomObject]@{ HWnd=$h; Id=$h.ToInt64(); Title=$sb.ToString() })
+      }
+    }
+  }
+  return $true
+}
+[FD]::EnumWindows($cbTop,[IntPtr]::Zero) | Out-Null
+
+# 2) Fenetre FICHE = celle qui contient un bouton "Aide" + >=2 marqueurs Etat civil.
+#    (La fiche est une fenetre distincte, titre "Fiche d'etat civil".)
+$markerRx = "Enregistrer|Lire la carte|Droits en ligne|Espace Sant|carte Vitale"
+$ficheId = $null; $aide = $null
+foreach ($w in $script:wins) {
+  $script:mk = 0; $script:ad = $null
+  $cbc = [FD+EnumProc]{ param($h,$l)
+    if ([FD]::IsWindowVisible($h)) {
+      $cls=New-Object System.Text.StringBuilder(64); [FD]::GetClassName($h,$cls,64) | Out-Null
+      if ($cls.ToString() -match "Button") {
+        $sb=New-Object System.Text.StringBuilder(128); [FD]::GetWindowText($h,$sb,128) | Out-Null
+        $t=$sb.ToString()
+        if ($t -match $markerRx) { $script:mk++ }
+        if (-not $script:ad -and $t -match "^\s*Aide\s*$") {
+          $r=New-Object FD+RECT; [FD]::GetWindowRect($h,[ref]$r) | Out-Null
+          $script:ad=[PSCustomObject]@{ L=$r.Left; T=$r.Top; R=$r.Right; B=$r.Bottom }
         }
       }
     }
+    return $true
   }
-  return $true
+  [FD]::EnumChildWindows($w.HWnd,$cbc,[IntPtr]::Zero) | Out-Null
+  if ($script:ad -and $script:mk -ge 2) { $ficheId = $w.Id; $aide = $script:ad; break }
 }
-[FD]::EnumWindows($cb,[IntPtr]::Zero) | Out-Null
-if (-not $script:patient) { Write-Output '{"active":false,"reason":"no-patient-window"}'; exit 0 }
+if (-not $aide) { Write-Output '{"active":false,"reason":"not-etat-civil"}'; exit 0 }
 
-# Dans la fenetre patient : compter les marqueurs Etat civil + localiser "Aide".
-$markerRx = "Enregistrer|Lire la carte|Droits en ligne|ADRi|Espace Sant|Vitale"
-$markers = 0
-$aide = $null
-$cbc = [FD+EnumProc]{ param($h,$l)
-  if ([FD]::IsWindowVisible($h)) {
-    $cls=New-Object System.Text.StringBuilder(64); [FD]::GetClassName($h,$cls,64) | Out-Null
-    if ($cls.ToString() -match "Button") {
-      $sb=New-Object System.Text.StringBuilder(128); [FD]::GetWindowText($h,$sb,128) | Out-Null
-      $t=$sb.ToString()
-      if ($t -match $markerRx) { $script:markers++ }
-      if (-not $script:aide -and $t -match "^\s*Aide\s*$") {
-        $r=New-Object FD+RECT; [FD]::GetWindowRect($h,[ref]$r) | Out-Null
-        $script:aide=[PSCustomObject]@{ L=$r.Left; T=$r.Top; R=$r.Right; B=$r.Bottom }
-      }
-    }
-  }
-  return $true
-}
-[FD]::EnumChildWindows([IntPtr]$script:patient.HWnd,$cbc,[IntPtr]::Zero) | Out-Null
-
-if ($script:markers -lt 2 -or -not $script:aide) {
-  Write-Output ('{"active":false,"reason":"not-etat-civil","markers":' + $script:markers + '}')
-  exit 0
+# 3) Identite patient : fenetre dont le titre = "<num> - <NOM Prenom>".
+$numero = $null; $name = $null
+foreach ($w in $script:wins) {
+  if ($w.Title -match '^(\d+)\s*[-–]\s*(.+)$') { $numero = $matches[1]; $name = $matches[2].Trim(); break }
 }
 
 $obj = @{
   active = $true
-  focused = [bool]$script:patient.Fg
-  numero = $script:patient.Num
-  name = $script:patient.Name
-  patientHwnd = $script:patient.HWnd
-  aideLeft = $script:aide.L; aideTop = $script:aide.T; aideRight = $script:aide.R; aideBottom = $script:aide.B
+  focused = ($fgId -eq $ficheId)
+  numero = $numero
+  name = $name
+  aideLeft = $aide.L; aideTop = $aide.T; aideRight = $aide.R; aideBottom = $aide.B
 } | ConvertTo-Json -Compress
 Write-Output $obj
 `;

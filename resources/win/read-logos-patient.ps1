@@ -154,13 +154,17 @@ if ($mm -and $yy) {
         if ($pm.Success) { $dob = $pm.Value; break }
     }
 }
-# 2b) Repli : 1re date plausible comme naissance (annee 1900..annee courante-1).
+# 2b) Repli (NIR absent) : parmi les dates plausibles (1900..annee courante), on
+#     prend celle dont l'ANNEE est la plus ANCIENNE = la date de naissance. Cela
+#     evite la date de 1er RDV ou "verifie le" qui sont recentes.
 if (-not $dob) {
     $curY = (Get-Date).Year
+    $bestY = 9999
     foreach ($d in $dates) {
         $parts = $d.Split('/')
-        $Y = [int]$parts[2]
-        if ($Y -ge 1900 -and $Y -le ($curY - 1)) { $dob = $d; break }
+        $dd = [int]$parts[0]; $mo = [int]$parts[1]; $Y = [int]$parts[2]
+        if ($dd -lt 1 -or $dd -gt 31 -or $mo -lt 1 -or $mo -gt 12) { continue }
+        if ($Y -ge 1900 -and $Y -le $curY -and $Y -lt $bestY) { $bestY = $Y; $dob = $d }
     }
 }
 
