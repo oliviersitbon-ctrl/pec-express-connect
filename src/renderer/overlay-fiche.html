@@ -48,7 +48,7 @@
       if (wrap.classList.contains('loading')) return;
       flash('loading', 'Envoi…');
       try {
-        const res = await window.cabflow.sendQuestionnaire();
+        const res = await window.mdd.sendQuestionnaire();
         if (res && res.ok) flash('ok', '✓ Envoyé', 2500);
         else flash('err', 'Échec', 3000);
       } catch (e) {
@@ -59,14 +59,14 @@
 
     // Click-through : traversant par defaut, capture au survol du bouton.
     function setIgnore(ignore) {
-      try { window.cabflow && window.cabflow.setMouseIgnoreFiche && window.cabflow.setMouseIgnoreFiche(ignore); } catch (e) {}
+      try { window.mdd && window.mdd.setMouseIgnoreFiche && window.mdd.setMouseIgnoreFiche(ignore); } catch (e) {}
     }
     wrap.addEventListener('mouseenter', () => setIgnore(false));
     wrap.addEventListener('mouseleave', () => setIgnore(true));
     setIgnore(true);
 
-    if (window.cabflow && window.cabflow.onFicheInfo) {
-      window.cabflow.onFicheInfo((data) => {
+    if (window.mdd && window.mdd.onFicheInfo) {
+      window.mdd.onFicheInfo((data) => {
         if (data && data.patient) {
           patientName = data.patient;
           btn.title = 'Envoyer le questionnaire medical a ' + patientName + ' (tablette)';

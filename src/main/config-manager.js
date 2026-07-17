@@ -27,7 +27,7 @@ const DEFAULT_CONFIG = {
   version: '1.0.0',
   // Mode d'extraction du devis:
   //   'pdf'   = imprimante virtuelle PostScript -> PDF -> texte (universel, defaut)
-  //   'logos' = lecture directe BDD Logos via CabFlowReader.exe (rapide mais Logos uniquement)
+  //   'logos' = lecture directe BDD Logos via MddReader.exe (rapide mais Logos uniquement)
   //   'auto'  = essaie PDF d'abord (timeout 3s), bascule sur Logos si echec
   extractionMode: 'auto',
   apiKey: '',

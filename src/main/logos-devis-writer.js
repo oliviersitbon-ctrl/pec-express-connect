@@ -16,7 +16,7 @@ function setLogger(fn) { _logger = fn; }
 function log(m) { const s = `[LOGOS-WRITER] ${m}`; if (_logger) _logger(s); else console.log(s); }
 
 const { getConfig } = require('./config-manager');
-// Racine data Logos decouverte par CabFlow (UNC \\PANO\wlogos2\Patients chez OS,
+// Racine data Logos decouverte par MddReader (UNC \\PANO\wlogos2\Patients chez OS,
 // lettre ou UNC ailleurs), memorisee en config. Repli L:\Patients (historique).
 function patientsRoot() {
   try {

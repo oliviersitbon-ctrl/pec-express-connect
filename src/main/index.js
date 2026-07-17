@@ -21,7 +21,7 @@ const WebSocket = require('ws');
 // Installation macOS via osascript avec administrator privileges
 async function installPrinterMac() {
   const { exec } = require('child_process');
-  const backendSrc = path.join(__dirname, '..', '..', 'resources', 'mac', 'cabflow-backend');
+  const backendSrc = path.join(__dirname, '..', '..', 'resources', 'mac', 'mdd-backend');
   const ppdSrc = path.join(__dirname, '..', '..', 'resources', 'mac', 'PECExpress_PEC.ppd');
 
   return new Promise((resolve, reject) => {
@@ -31,18 +31,18 @@ async function installPrinterMac() {
 
     const installScript = `
 do shell script "
-  mkdir -p /var/spool/cabflow
-  chmod 777 /var/spool/cabflow
-  cp '${backendSrc}' /usr/libexec/cups/backend/cabflow
-  chown root:wheel /usr/libexec/cups/backend/cabflow
-  chmod 700 /usr/libexec/cups/backend/cabflow
+  mkdir -p /var/spool/mdd
+  chmod 777 /var/spool/mdd
+  cp '${backendSrc}' /usr/libexec/cups/backend/mdd
+  chown root:wheel /usr/libexec/cups/backend/mdd
+  chmod 700 /usr/libexec/cups/backend/mdd
   cp '${ppdSrc}' /etc/cups/ppd/PECExpress_PEC.ppd
   chown root:_lp /etc/cups/ppd/PECExpress_PEC.ppd
   chmod 644 /etc/cups/ppd/PECExpress_PEC.ppd
   launchctl kickstart -k system/org.cups.cupsd 2>/dev/null || (launchctl stop org.cups.cupsd; sleep 1; launchctl start org.cups.cupsd)
   sleep 2
   lpadmin -x PECExpress_PEC 2>/dev/null || true
-  lpadmin -p PECExpress_PEC -D 'Lancer la DPEC' -L 'PecExpress' -v 'cabflow:/' -P '/etc/cups/ppd/PECExpress_PEC.ppd' -o printer-is-shared=false -E
+  lpadmin -p PECExpress_PEC -D 'Lancer la DPEC' -L 'PecExpress' -v 'mdd:/' -P '/etc/cups/ppd/PECExpress_PEC.ppd' -o printer-is-shared=false -E
   echo OK
 " with administrator privileges
 `;
@@ -452,32 +452,32 @@ const CONFIG = {
 };
 
 // ============================================
-// CABFLOW READER — Lecture directe Logos (< 100ms, sans impression)
+// MDDREADER READER — Lecture directe Logos (< 100ms, sans impression)
 // ============================================
 
-// Deadline: jusqu'a ce timestamp, tout spool est skippe (CabFlowReader a deja ouvert Chrome)
+// Deadline: jusqu'a ce timestamp, tout spool est skippe (MddReader a deja ouvert Chrome)
 // Expire automatiquement apres 10s pour permettre au pipeline XPS de reprendre en cas d'echec WMI
-let _cabflowHandledUntil = 0;
+let _mddHandledUntil = 0;
 
 /**
- * Trouve le chemin de CabFlowReader.exe dans les emplacements connus
+ * Trouve le chemin de MddReader.exe dans les emplacements connus
  */
-function findCabFlowReader() {
+function findMddReader() {
   const candidates = [
     // extraResources packagé (production portable) — process.resourcesPath/resources/win/
-    path.join(process.resourcesPath || '', 'resources', 'win', 'CabFlowReader.exe'),
+    path.join(process.resourcesPath || '', 'resources', 'win', 'MddReader.exe'),
     // extraResources via execPath (production)
-    path.join(path.dirname(process.execPath), 'resources', 'resources', 'win', 'CabFlowReader.exe'),
+    path.join(path.dirname(process.execPath), 'resources', 'resources', 'win', 'MddReader.exe'),
     // Ressources directes (production alternative)
-    path.join(path.dirname(process.execPath), 'resources', 'win', 'CabFlowReader.exe'),
+    path.join(path.dirname(process.execPath), 'resources', 'win', 'MddReader.exe'),
     // Ressources en mode dev (electron dev)
-    path.join(__dirname, '..', '..', 'resources', 'win', 'CabFlowReader.exe'),
+    path.join(__dirname, '..', '..', 'resources', 'win', 'MddReader.exe'),
     // ProgramData (installation stable)
-    'C:\\ProgramData\\PecExpress\\CabFlowReader.exe',
+    'C:\\ProgramData\\PecExpress\\MddReader.exe',
     // AppData Local
-    path.join(os.homedir(), 'AppData', 'Local', 'PecExpress', 'CabFlowReader.exe'),
+    path.join(os.homedir(), 'AppData', 'Local', 'PecExpress', 'MddReader.exe'),
     // Desktop (fallback dev)
-    path.join(os.homedir(), 'Desktop', 'CabFlowReader.exe'),
+    path.join(os.homedir(), 'Desktop', 'MddReader.exe'),
   ];
   for (const p of candidates) {
     try { if (fs.existsSync(p)) return p; } catch (e) {}
@@ -557,10 +557,10 @@ function forceBrowserForeground() {
 
 /**
  * Construit le CHEMIN RELATIF du wizard PEC prérempli depuis les données
- * CabFlowReader JSON (commun à toutes les voies d'ouverture).
+ * MddReader JSON (commun à toutes les voies d'ouverture).
  */
 function buildWizardPath(data) {
-  // Tolérant aux DEUX formes d'actes : CabFlowReader mémoire ({ccam,nom,honoraires,dent})
+  // Tolérant aux DEUX formes d'actes : MddReader mémoire ({ccam,nom,honoraires,dent})
   // ET parseur serveur logosw ({code,libelle,montant,dent,materiau,panier}). Les deux
   // voies (devis + PEC) convergent ainsi vers le même parcours prérempli.
   const actes = (data.actes || []).map(a => ({
@@ -586,7 +586,7 @@ function buildWizardPath(data) {
   const prat = data.praticienInfo || {};
   const mut = data.mutuelle || {};
   const params = new URLSearchParams({
-    source: 'cabflow-desktop',
+    source: 'mdd-desktop',
     type: 'pec', // entre directement dans le parcours PEC (saute l'ecran de choix)
     // NUMERO du dossier Logos : c'est le pivot qui permet, apres signature, de
     // reecrire les documents (ligne "envoye pour signature" + docs signes) dans
@@ -620,7 +620,7 @@ function buildWizardPath(data) {
  * Labora (SSO si session Labora active). Cabinet non-Labora : onglet MDD direct.
  * Dans les deux cas une session navigateur est nécessaire.
  */
-function buildCabFlowUrl(data) {
+function buildMddUrl(data) {
   const wizardPath = buildWizardPath(data);
   let isLabora = false;
   try {
@@ -637,7 +637,7 @@ function buildCabFlowUrl(data) {
  * Ouvre l'assistant PEC AVEC auto-login : le connecteur (appairé, clé API du
  * cabinet) demande au serveur un lien de connexion à usage unique
  * (/api/desktop/session), puis ouvre l'assistant DÉJÀ connecté — plus aucune
- * saisie de mot de passe. Repli sur buildCabFlowUrl (session requise) si
+ * saisie de mot de passe. Repli sur buildMddUrl (session requise) si
  * l'auto-login échoue (pas de clé, réseau, etc.).
  */
 async function openPecWizard(data) {
@@ -676,7 +676,7 @@ async function openPecWizard(data) {
     log('[PEC] Auto-login desktop exception (' + e.message + ') -> repli session navigateur');
   }
   // Repli : comportement historique (Labora iframe ou MDD direct).
-  openUrlInBrowser(buildCabFlowUrl(data));
+  openUrlInBrowser(buildMddUrl(data));
 }
 
 /**
@@ -685,7 +685,7 @@ async function openPecWizard(data) {
  * Le serveur envoie l'email au patient avec le bouton "espace patient", relance
  * chaque semaine sans reponse, et stoppe si un RDV de traitement est planifie.
  *
- * @param {Object} data - devis + patient issus de readAndOpenCabFlow (clean)
+ * @param {Object} data - devis + patient issus de readAndOpenMdd (clean)
  * @returns {Promise<boolean>}
  */
 // --- Fenetre de saisie de l'email patient avant envoi du devis ---
@@ -1066,11 +1066,11 @@ function openConnectWindow() {
 }
 
 /**
- * Lit le devis courant via CabFlowReader.exe et ouvre Mon devis dentaire dans Chrome
+ * Lit le devis courant via MddReader.exe et ouvre Mon devis dentaire dans Chrome
  * @param {string} docName - Nom du document depuis WMI (peut contenir l'ID du devis)
  * @returns {Promise<boolean>} true si Chrome a ete ouvert avec succes
  */
-async function readAndOpenCabFlow(docName, intent) {
+async function readAndOpenMdd(docName, intent) {
   const T0 = Date.now();
 
   // ── Gating module (pec/devis) AVANT toute ouverture de MDD ──────────────────
@@ -1084,7 +1084,7 @@ async function readAndOpenCabFlow(docName, intent) {
     const cm = require('./config-manager');
     const modules = (cm.getConfig() || {}).modules || {};
     if (modules[effIntent] === false) {
-      log('[CABFLOW] Module ' + effIntent + ' désactivé pour ce cabinet → ouverture MDD bloquée');
+      log('[MDDREADER] Module ' + effIntent + ' désactivé pour ce cabinet → ouverture MDD bloquée');
       try {
         const { Notification } = require('electron');
         new Notification({
@@ -1097,27 +1097,27 @@ async function readAndOpenCabFlow(docName, intent) {
       return false;
     }
   } catch (eMod) {
-    log('[CABFLOW] Lecture module échouée (fail-open): ' + eMod.message);
+    log('[MDDREADER] Lecture module échouée (fail-open): ' + eMod.message);
   }
 
-  const cabflowPath = findCabFlowReader();
-  if (!cabflowPath) {
-    log('[CABFLOW] CabFlowReader.exe non trouve');
+  const mddPath = findMddReader();
+  if (!mddPath) {
+    log('[MDDREADER] MddReader.exe non trouve');
     return false;
   }
-  log('[CABFLOW] Utilise: ' + cabflowPath);
+  log('[MDDREADER] Utilise: ' + mddPath);
 
   // docName = numero de dossier patient, lu par l'overlay dans le titre Logos
   // "<NUMERO> - <NOM Prenom>". On le passe comme patientId (arg1) pour que
-  // CabFlowReader localise le dossier DIRECTEMENT, sans dependre de la cle
+  // MddReader localise le dossier DIRECTEMENT, sans dependre de la cle
   // PatientEnCours dans LOGOS_w.INI (qui n'est pas toujours ecrite -> echec).
   const args = [];
   const numMatch = (docName || '').match(/\b(\d{3,6})\b/);
   if (numMatch) {
-    log('[CABFLOW] Numero dossier detecte dans docName "' + docName + '": ' + numMatch[1]);
+    log('[MDDREADER] Numero dossier detecte dans docName "' + docName + '": ' + numMatch[1]);
     args.push(numMatch[1], numMatch[1]); // arg1=patientId(NUMERO du dossier), arg2=devis (fallback devis courant)
   } else {
-    log('[CABFLOW] Aucun numero dans docName "' + docName + '" -> auto (INI)');
+    log('[MDDREADER] Aucun numero dans docName "' + docName + '" -> auto (INI)');
     args.push('0', '0');
   }
 
@@ -1126,14 +1126,14 @@ async function readAndOpenCabFlow(docName, intent) {
     let stdout = '';
     let stderr = '';
 
-    // Capture aussi stderr pour extraire patientsDir + memoOffset utilises par CabFlowReader
+    // Capture aussi stderr pour extraire patientsDir + memoOffset utilises par MddReader
     let mmoCtx = { patientsDir: null, memoOffset: null, patientId: null, devisId: null };
-    const proc = spawn(cabflowPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const proc = spawn(mddPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
 
     proc.stdout.on('data', (d) => { stdout += d.toString('utf8'); });
     proc.stderr.on('data', (d) => {
       const msg = d.toString('utf8').trim();
-      if (msg) log('[CABFLOW] ' + msg);
+      if (msg) log('[MDDREADER] ' + msg);
       stderr += msg;
       // Parse les lignes "Patient=X Dir=Y" et "MemoOff=0xXXXX" / "Devis selectionne: X"
       const mDir = msg.match(/Patient=(\d+)\s+Dir=(.+)/);
@@ -1144,17 +1144,17 @@ async function readAndOpenCabFlow(docName, intent) {
 
     const timeout = setTimeout(() => {
       proc.kill();
-      log('[CABFLOW] TIMEOUT 5s');
+      log('[MDDREADER] TIMEOUT 5s');
       resolve(false);
     }, 5000);
 
     proc.on('close', async (code) => {
       clearTimeout(timeout);
       const elapsed = Date.now() - T0;
-      log('[CABFLOW] Termine en ' + elapsed + 'ms (code=' + code + ')');
+      log('[MDDREADER] Termine en ' + elapsed + 'ms (code=' + code + ')');
 
       if (code !== 0 || !stdout.trim()) {
-        log('[CABFLOW] Echec (code=' + code + '): ' + (stderr.split('\n')[0] || ''));
+        log('[MDDREADER] Echec (code=' + code + '): ' + (stderr.split('\n')[0] || ''));
         resolve(false);
         return;
       }
@@ -1176,12 +1176,12 @@ async function readAndOpenCabFlow(docName, intent) {
             }
           } catch (e) {}
         }
-        log('[CABFLOW] Patient: ' + data.nom + ' ' + data.prenom +
+        log('[MDDREADER] Patient: ' + data.nom + ' ' + data.prenom +
             ' | Devis: ' + data.devisId + ' | ' + (data.actes || []).length + ' actes' +
             ' | NIR: ' + (data.nir || 'ABSENT'));
 
         // === RE-PARSE PROPRE via notre parseur MMO Node.js ===
-        // CabFlowReader.exe a un bug: il ne strip pas les 12 bytes de header
+        // MddReader.exe a un bug: il ne strip pas les 12 bytes de header
         // toutes les 128 bytes du fichier DEVIS.MMO -> libelles pollues + actes manquants
         // Notre parseur reconstruit le XML proprement et lit TOUS les actes
         if (mmoCtx.patientsDir && mmoCtx.memoOffset != null) {
@@ -1197,36 +1197,36 @@ async function readAndOpenCabFlow(docName, intent) {
             const civilInfo = { nom: data.nom, prenom: data.prenom,
                                 dateNaissance: data.dateNaissance, nir: data.nir };
             const clean = mmoParser.toPecExpressFormat(parsed, civilInfo);
-            log('[CABFLOW] CLEAN parsing OK: ' + clean.actes.length + ' actes (vs ' +
-                (data.actes || []).length + ' bruts CabFlowReader), praticien=' + clean.praticien +
+            log('[MDDREADER] CLEAN parsing OK: ' + clean.actes.length + ' actes (vs ' +
+                (data.actes || []).length + ' bruts MddReader), praticien=' + clean.praticien +
                 ', honTotal=' + clean.honorairesTotal);
 
             // CROSS-CHECK: compare total UI (ce que voit l'utilisateur) vs total BDD
-            const uiCtx = global._cabflowUiContext;
+            const uiCtx = global._mddUiContext;
             if (uiCtx && uiCtx.honoraires > 0) {
                 const diff = Math.abs(clean.honorairesTotal - uiCtx.honoraires);
                 if (diff > 0.5) {  // tolere 50 centimes d'arrondi
-                    log('[CABFLOW] MISMATCH UI=' + uiCtx.honoraires + '€ vs BDD=' +
+                    log('[MDDREADER] MISMATCH UI=' + uiCtx.honoraires + '€ vs BDD=' +
                         clean.honorairesTotal + '€ (diff=' + diff.toFixed(2) +
                         '€) -> BDD pas a jour, on garde quand meme la BDD (devis non sauvegarde)');
                     clean._uiMismatch = { uiTotal: uiCtx.honoraires, bddTotal: clean.honorairesTotal, diff };
                 } else {
-                    log('[CABFLOW] UI/BDD MATCH (' + uiCtx.honoraires + '€) -> devis bien sauvegarde');
+                    log('[MDDREADER] UI/BDD MATCH (' + uiCtx.honoraires + '€) -> devis bien sauvegarde');
                 }
             }
 
             // Override le data avec la version clean
             Object.assign(data, clean);
           } catch (eMmo) {
-            log('[CABFLOW] WARN: re-parse MMO clean failed: ' + eMmo.message +
-                ' - on garde le resultat CabFlowReader brut');
+            log('[MDDREADER] WARN: re-parse MMO clean failed: ' + eMmo.message +
+                ' - on garde le resultat MddReader brut');
           }
         } else {
-          log('[CABFLOW] Contexte MMO absent (patientsDir/memoOffset), skip re-parse clean');
+          log('[MDDREADER] Contexte MMO absent (patientsDir/memoOffset), skip re-parse clean');
         }
 
         if (!data.nir) {
-          log('[CABFLOW] WARN: NIR absent, URL sera incomplete');
+          log('[MDDREADER] WARN: NIR absent, URL sera incomplete');
         }
 
         // === LECTURE MUTUELLE (CIVILORG.MMO) ===
@@ -1246,13 +1246,13 @@ async function readAndOpenCabFlow(docName, intent) {
             });
             if (mutuelle) {
               data.mutuelle = mutuelle;
-              log('[CABFLOW] Mutuelle: ' + mutuelle.nom + ' AMC=' + mutuelle.numeroAMC +
+              log('[MDDREADER] Mutuelle: ' + mutuelle.nom + ' AMC=' + mutuelle.numeroAMC +
                   ' adh=' + mutuelle.numeroAdherent + ' contrat=' + mutuelle.numeroContrat);
             } else {
-              log('[CABFLOW] Pas de mutuelle trouvee pour ce patient');
+              log('[MDDREADER] Pas de mutuelle trouvee pour ce patient');
             }
           } catch (eMut) {
-            log('[CABFLOW] Erreur lecture mutuelle (non bloquant): ' + eMut.message);
+            log('[MDDREADER] Erreur lecture mutuelle (non bloquant): ' + eMut.message);
           }
         }
 
@@ -1271,15 +1271,15 @@ async function readAndOpenCabFlow(docName, intent) {
           if (civ && civ.email) {
             data.email = civ.email;
             if (!data.portable && civ.portable) data.portable = civ.portable;
-            log('[CABFLOW] Email patient (CIVIL.FIC): ' + civ.email);
+            log('[MDDREADER] Email patient (CIVIL.FIC): ' + civ.email);
           } else {
             const memReader = require('./logos-memory-reader');
             const email = await memReader.readPatientEmail({ nom: data.nom, nir: data.nir });
-            if (email) { data.email = email; log('[CABFLOW] Email patient (RAM fallback): ' + email); }
-            else { log('[CABFLOW] Email patient introuvable'); }
+            if (email) { data.email = email; log('[MDDREADER] Email patient (RAM fallback): ' + email); }
+            else { log('[MDDREADER] Email patient introuvable'); }
           }
         } catch (eMail) {
-          log('[CABFLOW] Erreur lecture email (non bloquant): ' + eMail.message);
+          log('[MDDREADER] Erreur lecture email (non bloquant): ' + eMail.message);
         }
 
         // Pousse le nom patient + nb actes dans le loader (visible immediatement)
@@ -1360,7 +1360,7 @@ async function readAndOpenCabFlow(docName, intent) {
             }
             log('[PEC] Wizard prérempli depuis le parseur serveur (' + parsedPec.actes.length + ' actes)');
           } else {
-            log('[PEC] Repli sur les actes CabFlowReader (parseur serveur indisponible)');
+            log('[PEC] Repli sur les actes MddReader (parseur serveur indisponible)');
           }
         } catch (ePecParse) {
           log('[PEC] Parsing serveur PEC échoué (non bloquant): ' + ePecParse.message);
@@ -1368,38 +1368,38 @@ async function readAndOpenCabFlow(docName, intent) {
 
         // Ouverture AVEC auto-login (magic-link via /api/desktop/session) ;
         // repli automatique sur la session navigateur si indisponible.
-        log('[CABFLOW] Ouverture de l assistant PEC (auto-login desktop)...');
+        log('[MDDREADER] Ouverture de l assistant PEC (auto-login desktop)...');
         await openPecWizard(data);
         resolve(true);
       } catch (e) {
-        log('[CABFLOW] JSON parse error: ' + e.message);
-        log('[CABFLOW] Stdout brut: ' + stdout.substring(0, 200));
+        log('[MDDREADER] JSON parse error: ' + e.message);
+        log('[MDDREADER] Stdout brut: ' + stdout.substring(0, 200));
         resolve(false);
       }
     });
 
     proc.on('error', (e) => {
       clearTimeout(timeout);
-      log('[CABFLOW] Spawn error: ' + e.message);
+      log('[MDDREADER] Spawn error: ' + e.message);
       resolve(false);
     });
   });
 }
 
 // Chemins (multi-plateforme)
-// macOS: /var/spool/cabflow/ (CUPS backend)
+// macOS: /var/spool/mdd/ (CUPS backend)
 // Windows: C:\ProgramData\PecExpress\spool\ (mfilemon - accessible par SYSTEM et User)
 const getSpoolPath = () => {
   if (process.platform === 'win32') {
     return 'C:\\ProgramData\\PecExpress\\spool';
   }
-  return '/var/spool/cabflow';
+  return '/var/spool/mdd';
 };
 const getLogsPath = () => path.join(os.homedir(), 'PecExpress', 'logs');
 
 /**
  * Assurer que les dossiers existent
- * macOS: Le spool /var/spool/cabflow/ est créé par l'installateur avec privilèges admin
+ * macOS: Le spool /var/spool/mdd/ est créé par l'installateur avec privilèges admin
  * Windows: Le spool %LOCALAPPDATA%\PecExpress\spool\ peut être créé sans admin
  */
 function ensureDirectories() {
@@ -1468,58 +1468,6 @@ function startWebSocketServer() {
   }
 }
 
-// Ecoute le pipe nomme \\.\pipe\cabflow-logos
-// La DLL injectee dans LOGOS_w.exe ecrit dedans quand l'utilisateur clique
-// le bouton Mon devis dentaire (apres avoir auto-sauvegarde le devis dans Logos).
-// Format des messages: une ligne JSON par message
-//   {"type":"open-pec","patient":"BLUM Denis"}
-let cabflowPipeServer = null;
-function startPecExpressPipeListener() {
-  try {
-    const net = require('net');
-    const PIPE_PATH = '\\\\.\\pipe\\cabflow-logos';
-    cabflowPipeServer = net.createServer((conn) => {
-      let buf = '';
-      conn.on('data', (chunk) => {
-        buf += chunk.toString('utf8');
-        let idx;
-        while ((idx = buf.indexOf('\n')) >= 0) {
-          const line = buf.slice(0, idx).trim();
-          buf = buf.slice(idx + 1);
-          if (!line) continue;
-          log('[PIPE] Message recu: ' + line);
-          let msg;
-          try { msg = JSON.parse(line); }
-          catch (e) { log('[PIPE] JSON invalide: ' + e.message); continue; }
-          if (msg.type === 'open-pec') {
-            log('[PIPE] -> open-pec patient="' + (msg.patient || '') +
-                '" uiTotal=' + (msg.uiHonoraires || 0) +
-                ' uiDate=' + (msg.uiDateDevis || ''));
-            // Stocke le contexte UI pour cross-check dans readAndOpenCabFlow
-            global._cabflowUiContext = {
-              honoraires: msg.uiHonoraires || 0,
-              reste: msg.uiReste || 0,
-              amo: msg.uiAmo || 0,
-              dateDevis: msg.uiDateDevis || '',
-              validite: msg.uiValidite || ''
-            };
-            readAndOpenCabFlow(null).then(success => {
-              log('[PIPE] CabFlowReader: ' + (success ? 'OK Chrome ouvert' : 'ECHEC'));
-              global._cabflowUiContext = null;
-            }).catch(err => log('[PIPE] Erreur CabFlowReader: ' + err.message));
-          }
-        }
-      });
-      conn.on('error', (e) => log('[PIPE] Erreur connexion: ' + e.message));
-    });
-    cabflowPipeServer.on('error', (e) => log('[PIPE] Erreur server: ' + e.message));
-    cabflowPipeServer.listen(PIPE_PATH, () => {
-      log('[PIPE] Listener actif sur ' + PIPE_PATH);
-    });
-  } catch (e) {
-    log('[PIPE] Impossible de demarrer pipe listener: ' + e.message);
-  }
-}
 
 function broadcastToWebClients(data) {
   if (!wss) return;
@@ -1627,13 +1575,13 @@ function createTray() {
       label: 'Lire devis Logos maintenant',
       click: () => {
         showLoader();
-        readAndOpenCabFlow(null).then(success => {
+        readAndOpenMdd(null).then(success => {
           if (success) {
-            _cabflowHandledUntil = Date.now() + 10000;
+            _mddHandledUntil = Date.now() + 10000;
             // Loader se ferme via blur ou safety timer
           } else {
             hideLoader();
-            log('[TRAY] CabFlowReader echec ou aucun patient actif');
+            log('[TRAY] MddReader echec ou aucun patient actif');
           }
         }).catch(err => {
           hideLoader();
@@ -1760,9 +1708,9 @@ async function processEmfSpool(captured) {
   const { parseEmfSpoolBuffer } = require('./emfspool-parser');
   const fetch = require('node-fetch');
 
-  // Si CabFlowReader a deja ouvert Chrome pour ce job, on skip le spool (fenetre 10s)
-  if (Date.now() < _cabflowHandledUntil) {
-    log('[EMFSPOOL] Skip — deja traite par CabFlowReader');
+  // Si MddReader a deja ouvert Chrome pour ce job, on skip le spool (fenetre 10s)
+  if (Date.now() < _mddHandledUntil) {
+    log('[EMFSPOOL] Skip — deja traite par MddReader');
     return;
   }
 
@@ -1894,9 +1842,9 @@ async function handleLancerPec(info) {
     if (!devisLive.success) {
       log(`[PEC] Lecture memoire echec: ${devisLive.error}`);
       hideLoader();
-      // Fallback CabFlowReader (BDD - mais devis pas enregistre = potentiellement vieux)
-      log(`[PEC] Fallback CabFlowReader pour devis ${info.devisId}`);
-      const ok = await readAndOpenCabFlow(info.devisId);
+      // Fallback MddReader (BDD - mais devis pas enregistre = potentiellement vieux)
+      log(`[PEC] Fallback MddReader pour devis ${info.devisId}`);
+      const ok = await readAndOpenMdd(info.devisId);
       return { success: ok };
     }
 
@@ -1919,7 +1867,7 @@ async function handleLancerPec(info) {
     }));
 
     const params = new URLSearchParams({
-      source: 'cabflow-desktop-overlay',
+      source: 'mdd-desktop-overlay',
       nom: devisLive.patient.nom,
       prenom: devisLive.patient.prenom,
       date_naissance: devisLive.patient.dateNaissance || '',
@@ -1942,18 +1890,18 @@ async function handleLancerPec(info) {
 // Timestamp du dernier job d'impression recu par WMI (true t=0)
 let _lastPrintJobTime = null;
 let _wmiProcess = null;
-// Dernier docName WMI (utilise pour fallback CabFlowReader si extraction PDF echoue)
+// Dernier docName WMI (utilise pour fallback MddReader si extraction PDF echoue)
 let _lastDocName = null;
 
 /**
  * Routeur unifie pour un SPL capture: route vers PS/XPS/EMF selon le format
  * et le mode d'extraction configure. En mode 'auto', si l'extraction PDF echoue,
- * tente le fallback Logos via CabFlowReader.
+ * tente le fallback Logos via MddReader.
  */
 async function handleCapturedSpool(captured) {
-  // Skip si CabFlowReader a deja traite ce job (mode logos)
-  if (Date.now() < _cabflowHandledUntil) {
-    log(`[ROUTER] Skip ${captured.format} — deja traite par CabFlowReader`);
+  // Skip si MddReader a deja traite ce job (mode logos)
+  if (Date.now() < _mddHandledUntil) {
+    log(`[ROUTER] Skip ${captured.format} — deja traite par MddReader`);
     return;
   }
 
@@ -1970,19 +1918,19 @@ async function handleCapturedSpool(captured) {
   if (captured.format === 'postscript') {
     const result = await processPostScriptSpool(captured);
     if (result && result.success) {
-      _cabflowHandledUntil = Date.now() + 10000;
+      _mddHandledUntil = Date.now() + 10000;
       return;
     }
     // Echec extraction PDF -> fallback Logos en mode auto
     if (mode === 'auto') {
-      log('[ROUTER] Echec PDF, fallback CabFlowReader (Logos)...');
+      log('[ROUTER] Echec PDF, fallback MddReader (Logos)...');
       showLoader();
-      const ok = await readAndOpenCabFlow(_lastDocName || '');
+      const ok = await readAndOpenMdd(_lastDocName || '');
       if (ok) {
-        _cabflowHandledUntil = Date.now() + 10000;
+        _mddHandledUntil = Date.now() + 10000;
       } else {
         hideLoader();
-        log('[ROUTER] CabFlowReader echec aussi, abandon');
+        log('[ROUTER] MddReader echec aussi, abandon');
       }
     }
     return;
@@ -2002,7 +1950,7 @@ async function handleCapturedSpool(captured) {
       log(`[ROUTER] ${captured.format} mis en attente 4s (mode auto, attend PS)`);
       const xpsBackup = captured;
       setTimeout(async () => {
-        if (Date.now() < _cabflowHandledUntil) {
+        if (Date.now() < _mddHandledUntil) {
           log(`[ROUTER] PS deja traite, XPS ignore`);
           return;
         }
@@ -2132,11 +2080,11 @@ while ($true) {
         _lastPrintJobTime = Date.now();
         log(`[WMI] *** CLIC IMPRIMER DETECTE *** t=0 | ${ts} | ${printer} | ${doc}`);
 
-        // Mode 'logos' uniquement: CabFlowReader immediat (lecture directe BDD Logos)
+        // Mode 'logos' uniquement: MddReader immediat (lecture directe BDD Logos)
         // Mode 'auto' et 'pdf': on attend le SPL PostScript (pipeline imprimante virtuelle).
         // En mode 'auto' le fallback Logos est declenche par processPostScriptSpool en cas d'echec.
         const printerLower = printer.toLowerCase();
-        if (printerLower.includes('mon devis dentaire') || printerLower.includes('cabflow')) {
+        if (printerLower.includes('mon devis dentaire') || printerLower.includes('mdd')) {
           let mode = 'auto';
           try {
             const { getConfig } = require('./config-manager');
@@ -2145,19 +2093,19 @@ while ($true) {
           } catch (e) {}
 
           if (mode === 'logos') {
-            log('[WMI] mode=logos -> Lancement CabFlowReader (lecture directe Logos)...');
+            log('[WMI] mode=logos -> Lancement MddReader (lecture directe Logos)...');
             showLoader();
-            readAndOpenCabFlow(doc).then(success => {
+            readAndOpenMdd(doc).then(success => {
               if (success) {
-                log('[WMI] CabFlowReader OK — Chrome ouvert en ' + (Date.now() - _lastPrintJobTime) + 'ms');
-                _cabflowHandledUntil = Date.now() + 10000;
+                log('[WMI] MddReader OK — Chrome ouvert en ' + (Date.now() - _lastPrintJobTime) + 'ms');
+                _mddHandledUntil = Date.now() + 10000;
               } else {
                 hideLoader();
-                log('[WMI] CabFlowReader echec');
+                log('[WMI] MddReader echec');
               }
             }).catch(err => {
               hideLoader();
-              log('[WMI] CabFlowReader exception: ' + err.message);
+              log('[WMI] MddReader exception: ' + err.message);
             });
           } else {
             log(`[WMI] mode=${mode} -> attente SPL PostScript (imprimante virtuelle)`);
@@ -2287,9 +2235,9 @@ async function processXpsSpool(captured) {
   const { parseDevis, buildDevisUrl } = require('./devis-parser');
   const T0 = Date.now();
 
-  // Si CabFlowReader a deja ouvert Chrome pour ce job, on skip le spool (fenetre 10s)
-  if (Date.now() < _cabflowHandledUntil) {
-    log('[XPS] Skip — deja traite par CabFlowReader');
+  // Si MddReader a deja ouvert Chrome pour ce job, on skip le spool (fenetre 10s)
+  if (Date.now() < _mddHandledUntil) {
+    log('[XPS] Skip — deja traite par MddReader');
     return;
   }
 
@@ -3069,7 +3017,6 @@ if (!gotTheLock) {
       // createLoaderWindow();
       // [OPT v1.0.16] WebSocket port 8082 desactive (legacy PecExpress Desktop, gain ~30 MB)
       // startWebSocketServer();
-      startPecExpressPipeListener();
 
       // Overlay flottant "Demande de PEC / Envoi de devis" sur la page Devis de Logos
       try {
@@ -3077,7 +3024,7 @@ if (!gotTheLock) {
         overlay.setLogger(log);
         overlay.startOverlay(async (devisInfo, intent) => {
           const doc = devisInfo && devisInfo.devisId != null ? String(devisInfo.devisId) : null;
-          const ok = await readAndOpenCabFlow(doc, intent || 'pec');
+          const ok = await readAndOpenMdd(doc, intent || 'pec');
           return { success: ok };
         });
         log('[STARTUP] Overlay Logos demarre');
@@ -3137,9 +3084,7 @@ if (!gotTheLock) {
         spoolParser.startSpoolWatcher();
         startPrintJobMonitor();
         try {
-          const logosWatcher = require('./logos-watcher');
-          logosWatcher.setLogger(log);
-          logosWatcher.startWatcher();
+
         } catch (e) {}
       }
       */

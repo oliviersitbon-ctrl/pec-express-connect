@@ -9,7 +9,7 @@ console.log('[PRELOAD] === PRELOAD v1.3.0 CHARGE ===');
 console.log('[PRELOAD] contextBridge disponible:', !!contextBridge);
 console.log('[PRELOAD] ipcRenderer disponible:', !!ipcRenderer);
 
-contextBridge.exposeInMainWorld('cabflow', {
+contextBridge.exposeInMainWorld('mdd', {
   // Configuration
   getConfig: () => {
     console.log('[PRELOAD] IPC invoke: get-config');
@@ -28,19 +28,12 @@ contextBridge.exposeInMainWorld('cabflow', {
   lancerPec: (intent) => ipcRenderer.invoke('overlay-lancer-pec', intent),
   pairConnect: (key) => ipcRenderer.invoke('desktop-pair', key),
   getModules: () => ipcRenderer.invoke('get-modules'),
-  // Overlay "Questionnaire MD" (page fiche patient / Etat civil)
-  sendQuestionnaire: () => ipcRenderer.invoke('overlay-questionnaire-send'),
-  onFicheInfo: (cb) => ipcRenderer.on('fiche-info', (e, data) => cb(data)),
-  setMouseIgnoreFiche: (ignore) => ipcRenderer.send('overlay-fiche-set-ignore', ignore),
   devisEmailGet: () => ipcRenderer.invoke('devis-email-get'),
   devisEmailSubmit: (payload) => ipcRenderer.send('devis-email-submit', payload),
   onOverlayInfo: (cb) => ipcRenderer.on('overlay-info', (e, data) => cb(data)),
   // Overlay click-through: true = traversant (icones Logos cliquables dessous),
   // false = capture (curseur sur les pastilles).
   setMouseIgnore: (ignore) => ipcRenderer.send('overlay-set-ignore', ignore),
-  // Zone cliquable des pastilles (px CSS relatifs a la fenetre) : le main pre-arme
-  // la capture souris quand le curseur y entre -> 1er clic pris en compte.
-  setOverlayHotRect: (rect) => ipcRenderer.send('overlay-set-hot-rect', rect),
 
   // Status
   getStatus: () => {
@@ -86,7 +79,7 @@ contextBridge.exposeInMainWorld('cabflow', {
     ipcRenderer.on('setup-progress', (event, message) => callback(message));
   },
 
-  // Loader (CabFlow print flow)
+  // Loader (MddReader print flow)
   onLoaderReset: (callback) => {
     ipcRenderer.on('loader-reset', () => callback());
   },
@@ -101,7 +94,7 @@ contextBridge.exposeInMainWorld('cabflow', {
   }
 });
 
-console.log('[PRELOAD] === window.cabflow expose avec succes ===');
+console.log('[PRELOAD] === window.mdd expose avec succes ===');
 
 // API dashboard Mon devis dentaire Connecté (v1.0.15+)
 contextBridge.exposeInMainWorld('logosConnectApi', {
