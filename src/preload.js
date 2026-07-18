@@ -34,6 +34,9 @@ contextBridge.exposeInMainWorld('mdd', {
   // Overlay click-through: true = traversant (icones Logos cliquables dessous),
   // false = capture (curseur sur les pastilles).
   setMouseIgnore: (ignore) => ipcRenderer.send('overlay-set-ignore', ignore),
+  // Zone cliquable des pastilles (px CSS relatifs a la fenetre) -> le MAIN
+  // pre-arme la capture souris avant le clic (1er clic pris en compte).
+  setOverlayHotRect: (rect) => ipcRenderer.send('overlay-set-hot-rect', rect),
 
   // Status
   getStatus: () => {

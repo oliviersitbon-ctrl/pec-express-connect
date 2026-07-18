@@ -6,11 +6,11 @@
   <style>
     * { margin:0; padding:0; box-sizing:border-box; -webkit-user-select:none; user-select:none; }
     html, body { height:100vh; width:100vw; background:transparent; overflow:hidden;
-      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,sans-serif; -webkit-app-region:drag; }
+      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,sans-serif; -webkit-app-region:no-drag; }
     .wrap { position:absolute; top:4px; right:4px; display:flex; gap:6px; -webkit-app-region:no-drag; }
     .btn { display:flex; align-items:center; gap:6px; padding:4px 10px; color:#fff; font-size:11.5px;
       font-weight:600; border:none; border-radius:6px; height:24px; cursor:pointer; white-space:nowrap;
-      transition:transform .12s ease, box-shadow .12s ease, opacity .3s; letter-spacing:.2px; }
+      transition:transform .12s ease, box-shadow .12s ease, opacity .3s, background .25s; letter-spacing:.2px; }
     .btn.pec { background:linear-gradient(135deg,#7c3aed 0%,#a855f7 100%);
       box-shadow:0 6px 18px rgba(124,58,237,.42), inset 0 1px 0 rgba(255,255,255,.3); }
     .btn.devis { background:linear-gradient(135deg,#0ea5e9 0%,#6366f1 100%);
@@ -20,7 +20,11 @@
     .btn[hidden] { display:none; }
     .wrap.disabled .btn { background:linear-gradient(135deg,#9ca3af,#6b7280);
       box-shadow:0 2px 6px rgba(0,0,0,.15); cursor:not-allowed; opacity:.65; pointer-events:none; }
-    .wrap.loading .btn { pointer-events:none; opacity:.85; }
+    /* Pendant l'envoi : les 2 boutons non cliquables, mais TOUJOURS visibles. */
+    .wrap.loading .btn { pointer-events:none; opacity:.9; cursor:default; }
+    /* Confirmation "✓ Envoyé" en vert, a la place du bouton (~5 s). */
+    .btn.sent { background:linear-gradient(135deg,#16a34a 0%,#22c55e 100%) !important;
+      box-shadow:0 6px 18px rgba(22,163,74,.42), inset 0 1px 0 rgba(255,255,255,.3) !important; opacity:1 !important; }
     .dot { width:7px; height:7px; border-radius:50%; background:rgba(255,255,255,.95);
       box-shadow:0 1px 2px rgba(0,0,0,.15); flex:none; }
   </style>
@@ -28,16 +32,19 @@
 <body>
   <div class="wrap disabled" id="wrap">
     <button class="btn pec" id="btn-pec" title="Creer une demande de prise en charge">
-      <span class="dot"></span><span>Demande de PEC</span>
+      <span class="dot"></span><span class="lbl">Demande de PEC</span>
     </button>
     <button class="btn devis" id="btn-devis" title="Envoyer le devis au patient">
-      <span class="dot"></span><span>Envoi de devis</span>
+      <span class="dot"></span><span class="lbl">Envoi de devis</span>
     </button>
   </div>
   <script>
     const wrap = document.getElementById('wrap');
     const bPec = document.getElementById('btn-pec');
     const bDev = document.getElementById('btn-devis');
+    const lblPec = bPec.querySelector('.lbl');
+    const lblDev = bDev.querySelector('.lbl');
+    const TEXT = { pec: 'Demande de PEC', devis: 'Envoi de devis' };
     // Modules actifs (pilotes cote site, par cabinet). Par defaut les deux.
     let mods = { pec: true, devis: true };
 
@@ -49,6 +56,25 @@
       // Un seul module actif => un seul bouton (declenche directement son wf).
       // Aucun module actif => rien.
       wrap.style.display = (!pecOn && !devOn) ? 'none' : 'flex';
+      reportHotRect();
+    }
+
+    // Rapporte au main la zone cliquable (union des boutons visibles), en px CSS
+    // relatifs a la fenetre -> le main pre-arme la capture souris (1er clic OK).
+    function reportHotRect() {
+      requestAnimationFrame(() => {
+        try {
+          if (!window.mdd || !window.mdd.setOverlayHotRect) return;
+          const btns = [bPec, bDev].filter((b) => !b.hidden && b.offsetParent !== null);
+          if (!btns.length) { window.mdd.setOverlayHotRect(null); return; }
+          const rects = btns.map((b) => b.getBoundingClientRect());
+          const x = Math.min(...rects.map((r) => r.left));
+          const y = Math.min(...rects.map((r) => r.top));
+          const right = Math.max(...rects.map((r) => r.right));
+          const bottom = Math.max(...rects.map((r) => r.bottom));
+          window.mdd.setOverlayHotRect({ x, y, w: right - x, h: bottom - y });
+        } catch (e) {}
+      });
     }
     async function loadModules() {
       try {
@@ -61,25 +87,37 @@
     }
     loadModules();
 
+    // Clic : "Envoi en cours…" -> (envoi) -> "✓ Envoyé" vert ~5 s. Les 2 boutons
+    // restent VISIBLES et non cliquables pendant tout l'envoi (wrap.loading) ;
+    // cote main l'overlay est epingle 30 s pour ne pas disparaitre.
     async function fire(intent) {
       if (wrap.classList.contains('disabled') || wrap.classList.contains('loading')) return;
       wrap.classList.add('loading');
-      try { await window.mdd.lancerPec(intent); }
-      catch (e) { console.error('overlay error', e); }
-      finally { setTimeout(() => wrap.classList.remove('loading'), 1500); }
+      const btn = intent === 'pec' ? bPec : bDev;
+      const lbl = intent === 'pec' ? lblPec : lblDev;
+      lbl.textContent = 'Envoi en cours…';
+      try {
+        await window.mdd.lancerPec(intent);
+        lbl.textContent = '✓ Envoyé';
+        btn.classList.add('sent');
+        setTimeout(() => {
+          btn.classList.remove('sent');
+          lbl.textContent = TEXT[intent];
+          wrap.classList.remove('loading');
+        }, 5000);
+      } catch (e) {
+        console.error('overlay error', e);
+        lbl.textContent = TEXT[intent];
+        wrap.classList.remove('loading');
+      }
     }
     bPec.addEventListener('click', () => fire('pec'));
     bDev.addEventListener('click', () => fire('devis'));
 
-    // Click-through : la fenetre overlay est traversante par defaut (les icones
-    // de Logos dessous restent cliquables a tout moment). On ne capte la souris
-    // que lorsque le curseur survole reellement la zone des pastilles.
-    function setIgnore(ignore) {
-      try { window.mdd && window.mdd.setMouseIgnore && window.mdd.setMouseIgnore(ignore); } catch (e) {}
-    }
-    wrap.addEventListener('mouseenter', () => setIgnore(false));
-    wrap.addEventListener('mouseleave', () => setIgnore(true));
-    setIgnore(true); // etat initial : traversant
+    // Click-through pilote par le MAIN PROCESS (poll du curseur, overlay-pec.js
+    // startCursorPoll) qui active la capture AVANT le clic -> plus de "1er clic
+    // ignore". On ne fait plus de bascule reactive sur mouseenter/mouseleave.
+    window.addEventListener('resize', reportHotRect);
 
     if (window.mdd && window.mdd.onOverlayInfo) {
       window.mdd.onOverlayInfo((data) => {
@@ -93,6 +131,8 @@
         } else {
           wrap.classList.add('disabled');
         }
+        // La visibilite/geometrie des boutons a pu changer -> re-mesurer.
+        reportHotRect();
       });
     }
   </script>
