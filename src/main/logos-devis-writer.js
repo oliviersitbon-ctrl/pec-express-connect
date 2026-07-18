@@ -16,14 +16,41 @@ function setLogger(fn) { _logger = fn; }
 function log(m) { const s = `[LOGOS-WRITER] ${m}`; if (_logger) _logger(s); else console.log(s); }
 
 const { getConfig } = require('./config-manager');
-// Racine data Logos decouverte par MddReader (UNC \\PANO\wlogos2\Patients chez OS,
-// lettre ou UNC ailleurs), memorisee en config. Repli L:\Patients (historique).
+const logosIni = require('./logos-ini');
+
+// Racine data Logos, résolue de façon PORTABLE (aucun chemin propre à un poste) :
+//   1) config.logosPatientsDir : découvert par MddReader (UNC/lettre selon cabinet) ;
+//   2) LOGOS_w.INI (Répertoire_Patients) : repli portable — indispensable sur un
+//      poste qui ne fait QUE la voie retour (signature/PEC/questionnaire) sans
+//      avoir lu de devis, donc sans logosPatientsDir en config ;
+//   3) L:\Patients : dernier repli HISTORIQUE (poste OS uniquement) — ne marche
+//      pas ailleurs, gardé uniquement pour ne rien casser sur l'existant.
 function patientsRoot() {
   try {
     const d = (getConfig() || {}).logosPatientsDir;
     if (d && String(d).trim()) return String(d).trim().replace(/[\\/]+$/, '');
   } catch (e) {}
+  try {
+    const iniHint = (getConfig() || {}).logosIniPath;
+    const { patientsDir } = logosIni.readIni(iniHint);
+    if (patientsDir && String(patientsDir).trim()) {
+      log('racine data via LOGOS_w.INI: ' + patientsDir);
+      return String(patientsDir).trim().replace(/[\\/]+$/, '');
+    }
+  } catch (e) {}
   return 'L:\\Patients';
+}
+
+// Code praticien par défaut, PORTABLE : premier code de LOGOS_w.INI (GPID_Prats),
+// sinon 'OS' en dernier recours. Evite d'attribuer en dur les documents à « OS »
+// (code inexistant dans un cabinet dont le praticien n'est pas OS).
+function defaultPractitionerCode() {
+  try {
+    const iniHint = (getConfig() || {}).logosIniPath;
+    const { codes } = logosIni.readIni(iniHint);
+    if (codes && codes.length && codes[0]) return codes[0];
+  } catch (e) {}
+  return 'OS';
 }
 const RESULT_FILE = 'C:\\ProgramData\\PecExpress\\logos-write-result.txt';
 
@@ -46,14 +73,17 @@ function exePath() {
  * @param {Buffer} pdfBuffer         contenu binaire du PDF signe
  * @param {string} filename          nom du fichier (ex: "Devis-signe-1234.pdf")
  * @param {string} label             libelle affiche dans Logos (ex: "Devis signé")
- * @param {string} [praticien="OS"]  initiales praticien
+ * @param {string} [praticien]  initiales praticien. Si absent/vide, on prend le
+ *                              code praticien de LOGOS_w.INI (portable), sinon 'OS'.
  * @returns {Promise<{ok:boolean, cle?:string, result:string}>}
  */
-function writeSignedDoc(patientId, pdfBuffer, filename, label, praticien = 'OS') {
+function writeSignedDoc(patientId, pdfBuffer, filename, label, praticien) {
   return new Promise((resolve, reject) => {
     try {
       const num  = String(patientId);
       const root = patientsRoot();
+      // Praticien : valeur fournie par l'appelant (serveur/RAM) sinon repli INI.
+      praticien = (praticien && String(praticien).trim()) || defaultPractitionerCode();
       // 1) poser le PDF dans <root>\LIENS\<patient>\
       const dir = path.join(root, 'LIENS', num);
       fs.mkdirSync(dir, { recursive: true });

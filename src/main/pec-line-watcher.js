@@ -88,7 +88,7 @@ function downloadAccordPdf(site, token, accordDocId) {
 async function writeDevisLine(site, item) {
   const numero = item.logosNumero;
   const ref = safeRef(item.devisRef || item.pecId.slice(0, 8));
-  const prat = item.praticien || 'OS';
+  const prat = item.praticien || null; // null => writeSignedDoc prend le code INI (portable)
   // Libellé ASCII: "Devis 1160.50 EUR envoye pour signature"
   const label = `Devis ${eur(item.montant)} EUR envoye pour signature`;
 
@@ -109,7 +109,7 @@ async function writeDevisLine(site, item) {
 async function writePecLine(site, item) {
   const numero = item.logosNumero;
   const ref = safeRef(item.devisRef || item.pecId.slice(0, 8));
-  const prat = item.praticien || 'OS';
+  const prat = item.praticien || null; // null => writeSignedDoc prend le code INI (portable)
   // Libellé ASCII: "PEC 1160.50 EUR RAC 910.50 EUR envoye pour signature"
   const label = `PEC ${eur(item.montant)} EUR RAC ${eur(item.rac)} EUR envoye pour signature`;
 

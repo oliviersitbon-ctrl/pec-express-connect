@@ -1056,8 +1056,11 @@ async function sendDevisToPatient(data) {
           .replace(/[^a-zA-Z0-9._-]/g, '_')
           .slice(0, 40);
         const label = 'Devis pour un montant de ' + total.toFixed(2) + ' EUR envoye pour signature';
+        // Auteur = code praticien lu dans Logos (data.praticien, ex. "OS"),
+        // dynamique pour le multi-praticien ; si absent, null -> writeSignedDoc
+        // prend le code praticien de LOGOS_w.INI (portable) au lieu de 'OS' en dur.
         const rLog = await logosWriter.writeSignedDoc(
-          data.logosNumero, buf, `Devis-envoye-${ref}.pdf`, label, 'OS'
+          data.logosNumero, buf, `Devis-envoye-${ref}.pdf`, label, data.praticien || null
         );
         log('[DEVIS] Ligne Logos "envoye pour signature" ecrite (dossier ' +
             data.logosNumero + ', cle=' + (rLog && rLog.cle) + ')');
@@ -3273,6 +3276,17 @@ if (!gotTheLock) {
         log('[STARTUP] Overlay Questionnaire MD (fiche) demarre');
       } catch (eFiche) {
         log('[STARTUP] Overlay Questionnaire MD non demarre (non bloquant): ' + eFiche.message);
+      }
+
+      // Retour des questionnaires remplis : reecrit le PDF rempli dans le dossier
+      // Logos d'origine (poll /api/desktop/questionnaire-pending?source=logos).
+      try {
+        const questionnaireWatcher = require('./questionnaire-watcher');
+        questionnaireWatcher.start(log);
+        global._questionnaireWatcher = questionnaireWatcher;
+        log('[STARTUP] Watcher retour questionnaire demarre');
+      } catch (eQw) {
+        log('[STARTUP] Watcher retour questionnaire non demarre (non bloquant): ' + eQw.message);
       }
 
       // [OPT v1.0.16] Modules legacy PecExpress Desktop desactives (pas d'imprimante en Mon devis dentaire Connecté)

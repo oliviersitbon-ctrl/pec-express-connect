@@ -146,6 +146,36 @@ async function resolvePractitioner(numeroAm) {
   }
 }
 
+/**
+ * BAIL ATOMIQUE multi-poste. Tous les postes surveillent le même dossier FSE
+ * réseau ; sans ça, chacun déclencherait Trust pour la même FSE. On réserve la
+ * FSE côté serveur (/api/desktop/fse-claim, INSERT…ON CONFLICT atomique). Un
+ * seul poste gagne (claimed=true) ; les autres passent. Bail expirable 3 min.
+ * En cas d'échec réseau : fail-OPEN (on traite) — la dédup serveur (2 h par
+ * patient) reste un filet, on préfère ne pas rater un avis à cause du claim.
+ */
+async function claimFse(fseKey) {
+  const fetch = require('node-fetch');
+  const os = require('os');
+  const ctx = _getCtx() || {};
+  const site = ctx.siteUrl || 'https://app.mondevisdentaire.com';
+  const apiKey = ctx.apiKey || '';
+  if (!apiKey) return true; // pas encore appairé : on ne bloque pas (rien ne partira de toute façon)
+  try {
+    const res = await fetch(`${site}/api/desktop/fse-claim`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+      body: JSON.stringify({ fseKey, postId: os.hostname() }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) { log(`claim FSE HTTP ${res.status} -> fail-open (on traite)`); return true; }
+    return j && j.claimed === true;
+  } catch (e) {
+    log(`claim FSE échec réseau (${e.message}) -> fail-open (on traite)`);
+    return true;
+  }
+}
+
 async function processFile(fp, name, tries = 0) {
   if (!(await isStable(fp))) {
     if (tries < 6) { setTimeout(() => processFile(fp, name, tries + 1), 1500); }
@@ -161,6 +191,15 @@ async function processFile(fp, name, tries = 0) {
     return;
   }
 
+  // Bail atomique multi-poste : un seul poste traite cette FSE (clé =
+  // numéro AM + numéro de FSE). Les autres passent -> pas de double envoi.
+  const fseKey = `${parsed.numeroAM || '?'}:${parsed.fseNumber || name}`;
+  const claimed = await claimFse(fseKey);
+  if (!claimed) {
+    log(`${name} : FSE déjà réservée par un autre poste (clé ${fseKey}) -> skip`);
+    return;
+  }
+
   // Matching praticien par numéro AM (échec silencieux si non mappé à un
   // praticien MDD). Le numéro AM est journalisé côté serveur pour le mapping.
   const reso = await resolvePractitioner(parsed.numeroAM);
@@ -173,10 +212,27 @@ async function processFile(fp, name, tries = 0) {
   const patientsDir = ctx.patientsDir || _iniPatientsDir; // INI en repli si pas encore de devis
   const rec = civil.readPatientByNir(patientsDir, parsed.nir);
   if (!rec) { log(`${name} : patient (NIR) introuvable dans CIVIL.FIC -> abandon`); return; }
-  if (!rec.email && !rec.portable) { log(`${name} : ni email ni téléphone -> abandon`); return; }
+
+  // Email patient : on le cherche EXACTEMENT comme le bouton « Envoi de devis ».
+  //   1) CIVIL.FIC (le champ email de la fiche),
+  //   2) sinon REPLI RAM : on lit la fiche patient vivante dans LOGOS_w
+  //      (read-logos-email.ps1), ancré sur le nom + NIR.
+  // Trust = envoi par EMAIL uniquement : sans email (après les deux voies),
+  // submit-patient rejetterait (400), donc on abandonne proprement ici.
+  let email = rec.email || null;
+  if (!email && rec.nom) {
+    try {
+      const memReader = require('./logos-memory-reader');
+      email = await memReader.readPatientEmail({ nom: rec.nom, nir: parsed.nir });
+      if (email) log(`${name} : email patient récupéré via RAM (repli, comme « Envoi de devis »)`);
+    } catch (e) {
+      log(`${name} : lecture email RAM en repli a échoué : ${e.message}`);
+    }
+  }
+  if (!email) { log(`${name} : patient sans email (CIVIL.FIC + RAM) -> abandon (Trust = email requis)`); return; }
 
   const patient = {
-    email: rec.email || null,
+    email,
     firstName: rec.prenom || null,
     lastName: rec.nom || null,
     phone: rec.portable || null,

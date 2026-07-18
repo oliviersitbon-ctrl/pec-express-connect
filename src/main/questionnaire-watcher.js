@@ -9,8 +9,7 @@
  * Règle métier : « si le questionnaire part de Logos, il revient dans Logos ».
  * Le pivot est source_patient_ref (= NUMERO du dossier LogosW), propagé à l'envoi
  * par le bouton « Questionnaire MD ». Les questionnaires envoyés depuis Doctolib
- * (source_system='doctolib') ne sont PAS pris par ce watcher (filtre ?source=logos)
- * — ils repartent vers l'extension Doctolib.
+ * (source_system='doctolib') ne sont PAS pris par ce watcher (filtre ?source=logos).
  *
  * Robuste : chaque questionnaire est traité indépendamment ; en cas d'échec on NE
  * marque PAS archivé -> nouvelle tentative au prochain tick (pas de doublon).
@@ -63,13 +62,16 @@ async function returnToLogos(site, item) {
     log(`Questionnaire ${String(item.token).slice(0, 8)} sans n° dossier Logos -> ignoré`);
     return false;
   }
-  const ref = safeRef(item.patientNom || item.token.slice(0, 8));
-  const prat = 'OS';
+  const ref = safeRef(item.patientNom || String(item.token).slice(0, 8));
+  // Auteur du document Logos : code praticien fourni par le serveur si présent,
+  // sinon null -> writeSignedDoc retombe sur le code praticien de LOGOS_w.INI
+  // (portable) plutôt que 'OS' en dur.
+  const prat = item.praticien || null;
   const buf = await downloadPdf(site, item.token);
   const r = await logosWriter.writeSignedDoc(
     numero, buf, `Questionnaire-medical-${ref}.pdf`, 'Questionnaire medical rempli', prat
   );
-  if (!r.ok) throw new Error(`écriture questionnaire Logos KO: ${r.result}`);
+  if (!r || !r.ok) throw new Error(`écriture questionnaire Logos KO: ${r && r.result}`);
   log(`Questionnaire rempli écrit dans dossier ${numero} (cle=${r.cle})`);
   return true;
 }
@@ -104,7 +106,7 @@ async function tick() {
     }
     const json = await res.json().catch(() => ({}));
     const items = (json && json.items) || [];
-    if (!items.length) { log('poll: aucun questionnaire rempli à renvoyer'); return; }
+    if (!items.length) return; // rien à renvoyer (silencieux pour ne pas spammer le log)
     log(`${items.length} questionnaire(s) rempli(s) à renvoyer dans Logos`);
 
     // Séquentiel : évite la contention sur le .fic Logos (l'exe ouvre/ferme).
@@ -130,10 +132,7 @@ function start(logFn) {
   setTimeout(() => { tick(); _timer = setInterval(tick, POLL_MS); }, FIRST_DELAY_MS);
 }
 
-function stop() {
-  if (_timer) { clearInterval(_timer); _timer = null; }
-}
-
+function stop() { if (_timer) { clearInterval(_timer); _timer = null; } }
 function runNow() { return tick(); }
 
 module.exports = { start, stop, runNow, setLogger };

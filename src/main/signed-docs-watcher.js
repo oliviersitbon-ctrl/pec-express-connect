@@ -104,7 +104,7 @@ async function returnToLogos(site, apiKey, item) {
     return false;
   }
   const ref = safeRef(item.devisRef || item.token.slice(0, 8));
-  const prat = item.praticien || 'OS';
+  const prat = item.praticien || null; // null => writeSignedDoc prend le code INI (portable)
   // Repli si serveur ancien (sans needDevis/needConsent) : on retombe sur "existe".
   const needDevis = item.needDevis !== undefined ? item.needDevis : !!item.hasSignedDevis;
   const needConsent = item.needConsent !== undefined ? item.needConsent : !!item.hasConsent;
