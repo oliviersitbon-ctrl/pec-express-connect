@@ -164,10 +164,24 @@ async function refreshDevisDetection() {
       return;
     }
 
-    // Logos est foreground -> afficher le bouton (etat a determiner)
+    // Pas sur la page Devis (Logos au 2nd plan, ou aucune page devis ouverte :
+    // reason 'no-devis-window' / 'logos-not-foreground' / transitoire) ->
+    // MASQUER. Sinon les pastilles grisées restent affichées quand le devis est
+    // fermé (régression signalée). L'épinglage d'envoi (_busyUntil) est respecté
+    // par hideOverlay, donc la confirmation reste visible pendant un envoi.
+    if (!r.active) {
+      if (_lastHideReason !== (r.reason || 'no-devis')) {
+        log(`Pas sur page Devis (raison=${r.reason || '?'}) -> overlay masqué`);
+      }
+      _currentDevisInfo = null;
+      hideOverlay();
+      return;
+    }
+
+    // On est sur la page Devis de Logos -> afficher (état à déterminer).
     showOverlay(r);
 
-    if (r.active && r.devisId && r.patient) {
+    if (r.devisId && r.patient) {
       // Page Devis detectee, verifier que le devis a des actes en RAM
       // IMPORTANT: filtrer par nom patient pour eviter de lire un vieux devis cache
       let hasActes = false;
@@ -208,8 +222,9 @@ async function refreshDevisDetection() {
         updateOverlayInfo({ enabled: false, reason: 'Devis vide' });
       }
     } else {
+      // Sur la page Devis mais devis pas encore lu (chargement) -> grisé.
       _currentDevisInfo = null;
-      updateOverlayInfo({ enabled: false, reason: 'Pas sur page Devis' });
+      updateOverlayInfo({ enabled: false, reason: 'Devis en cours de lecture' });
     }
   } catch (e) {
     log('refreshDevisDetection erreur: ' + e.message);

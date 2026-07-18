@@ -789,6 +789,12 @@ async function fetchServerParsedDevis(site, pdfBase64, pdfFileName) {
           nir: (pj.patient && pj.patient.nir) || '',
           nirCle: (pj.patient && pj.patient.nirCle) || '',
         },
+        // Praticien du devis (nom « Docteur … » + N°RPPS), extrait par le MÊME
+        // parse serveur -> sert au contrôle de compte SANS re-parser le PDF.
+        praticien: {
+          nom: (pj.praticien && pj.praticien.nom) || '',
+          rpps: (pj.praticien && pj.praticien.rpps) || '',
+        },
       };
     }
     log('[PARSE] Parseur serveur: ' + ((pj && pj.error) || ('0 acte / HTTP ' + pr.status)) + ' -> repli local');
@@ -796,6 +802,33 @@ async function fetchServerParsedDevis(site, pdfBase64, pdfFileName) {
   } catch (eP) {
     log('[PARSE] Parseur serveur exception (' + eP.message + ') -> repli local');
     return null;
+  }
+}
+
+/**
+ * Résout le compte praticien MDD à partir de l'identité DÉJÀ parsée (nom+RPPS),
+ * SANS re-parser le PDF (simple lookup base côté serveur). Renvoie
+ * { blocked, message }. En cas d'erreur réseau : blocked=false (on ne casse pas
+ * un envoi légitime sur un souci technique).
+ */
+async function resolvePraticienAccount(site, apiKey, praticien, intent) {
+  try {
+    const fetch = require('node-fetch');
+    const res = await fetch(site + '/api/desktop/praticien-resolve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+      body: JSON.stringify({
+        nom: (praticien && praticien.nom) || '',
+        rpps: (praticien && praticien.rpps) || '',
+        intent: intent || 'pec',
+      }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (res.ok && j && j.blocked) return { blocked: true, message: j.message || '' };
+    return { blocked: false, message: null };
+  } catch (e) {
+    log('[PRATICIEN] Résolution compte échouée (non bloquant): ' + e.message);
+    return { blocked: false, message: null };
   }
 }
 
@@ -899,7 +932,9 @@ async function sendDevisToPatient(data) {
   // PEC et l'extension Chrome. Repli sur les actes locaux si le parseur échoue.
   let devisData = null;
   const parsed = await fetchServerParsedDevis(site, pdfBase64, pdfFileName);
+  let devisPraticien = null;
   if (parsed && Array.isArray(parsed.actes) && parsed.actes.length) {
+    devisPraticien = parsed.praticien || null;
     devisData = {
       devisRef: parsed.devisRef || (data.devisId != null ? String(data.devisId) : undefined),
       dateDevis: parsed.dateDevis || undefined,
@@ -913,18 +948,36 @@ async function sendDevisToPatient(data) {
       },
     };
   }
+  // Parse serveur KO -> PAS de repli local (lent) : on bloque et on invite à appeler.
   if (!devisData) {
-    devisData = {
-      devisRef: data.devisId != null ? String(data.devisId) : undefined,
-      totalMontant: total,
-      actes,
-      patient: {
-        nom: data.nom || '',
-        prenom: data.prenom || '',
-        dateNaissance: data.dateNaissance || '',
-        nir: data.nir || '',
-      },
-    };
+    log('[DEVIS] Parseur serveur indisponible -> envoi bloque (appeler Olivier)');
+    dialog.showMessageBoxSync({
+      type: 'warning',
+      title: 'Mon devis dentaire - Envoi de devis',
+      message: "Le devis n'a pas pu etre analyse.",
+      detail: "Le devis n'a pas ete envoye. Appelez Olivier au 06 46 73 10 65.",
+      buttons: ['OK'],
+    });
+    return false;
+  }
+
+  // Contrôle compte praticien : identité DÉJÀ parsée -> lookup base, SANS re-parse.
+  try {
+    const chk = await resolvePraticienAccount(site, apiKey, devisPraticien, 'devis');
+    if (chk && chk.blocked) {
+      log('[DEVIS] Praticien sans compte MDD -> envoi bloque');
+      dialog.showMessageBoxSync({
+        type: 'warning',
+        title: 'Mon devis dentaire - Envoi de devis',
+        message: 'Envoi bloque.',
+        detail: chk.message ||
+          "Le praticien de ce devis n'a pas de compte sur Mon Devis Dentaire. Appelez Olivier au 06 46 73 10 65 pour qu'il cree votre espace.",
+        buttons: ['OK'],
+      });
+      return false;
+    }
+  } catch (eChk) {
+    log('[DEVIS] Controle compte praticien echoue (non bloquant): ' + eChk.message);
   }
 
   const payload = {
@@ -943,6 +996,10 @@ async function sendDevisToPatient(data) {
       system: data.sourceSystem || 'logos',
       patientRef: (data.logosNumero != null) ? String(data.logosNumero) : '',
       praticien: data.praticien || '',
+      // Identité praticien DÉJÀ parsée -> le serveur résout le compte SANS
+      // re-parser le PDF (évite un 2e parse à l'envoi).
+      praticienNom: (devisPraticien && devisPraticien.nom) || '',
+      praticienRpps: (devisPraticien && devisPraticien.rpps) || '',
     },
     // PDF officiel Logos (si Shift+clic imprimante a ete fait avant l'envoi).
     pdfBase64,
@@ -1319,6 +1376,7 @@ async function readAndOpenMdd(docName, intent) {
         // volerait le focus). Et c'est ce parse serveur qui fournit le PANIER +
         // détails AMO complets. Repli sur les actes mémoire si le print/parse
         // échoue → jamais bloquant.
+        let pecPraticien = null, pecParseFailed = false;
         try {
           const site = CONFIG.siteUrl;
           const overlayMod = require('./overlay-pec');
@@ -1351,6 +1409,7 @@ async function readAndOpenMdd(docName, intent) {
           const parsedPec = await fetchServerParsedDevis(site, pecPdfB64, pecPdfName);
           if (parsedPec && Array.isArray(parsedPec.actes) && parsedPec.actes.length) {
             data.actes = parsedPec.actes; // actes parsés serveur = source de vérité (panier, AMO…)
+            pecPraticien = parsedPec.praticien || null; // pour le contrôle de compte (sans re-parse)
             if (parsedPec.patient) {
               data.nom = parsedPec.patient.nom || data.nom;
               data.prenom = parsedPec.patient.prenom || data.prenom;
@@ -1360,35 +1419,47 @@ async function readAndOpenMdd(docName, intent) {
             }
             log('[PEC] Wizard prérempli depuis le parseur serveur (' + parsedPec.actes.length + ' actes)');
           } else {
-            log('[PEC] Repli sur les actes MddReader (parseur serveur indisponible)');
+            // Parse serveur KO -> PAS de repli local (lent). On bloque et on
+            // invite à appeler (le devis n'est pas exploitable automatiquement).
+            log('[PEC] Parseur serveur indisponible -> blocage (appeler Olivier)');
+            pecParseFailed = true;
           }
         } catch (ePecParse) {
-          log('[PEC] Parsing serveur PEC échoué (non bloquant): ' + ePecParse.message);
+          log('[PEC] Parsing serveur PEC échoué: ' + ePecParse.message);
+          pecParseFailed = true;
         }
 
-        // ── Pré-contrôle praticien (SUR LOGOS, AVANT d'ouvrir Chrome) ────────
-        // Si le praticien du devis n'a pas de compte MDD, on bloque ici avec une
-        // pop-up native et on N'OUVRE PAS le wizard (symétrie avec l'envoi de
-        // devis). Non bloquant en cas d'erreur technique (fail-open ciblé).
+        // Parse serveur KO -> message « appeler Olivier », wizard non ouvert.
+        if (pecParseFailed) {
+          try { hideLoader(); } catch (e) {}
+          dialog.showMessageBoxSync({
+            type: 'warning',
+            title: 'Mon devis dentaire - Demande de PEC',
+            message: "Le devis n'a pas pu etre analyse.",
+            detail: "La demande de prise en charge n'a pas ete lancee. Appelez Olivier au 06 46 73 10 65.",
+            buttons: ['OK'],
+          });
+          resolve(false);
+          return;
+        }
+
+        // ── Contrôle compte praticien (SUR LOGOS, AVANT d'ouvrir Chrome) ─────
+        // On réutilise le praticien DÉJÀ parsé (pecPraticien) -> simple lookup
+        // base côté serveur, SANS re-parser le PDF (pas de 2e extraction). Si pas
+        // de compte MDD -> pop-up native, wizard non ouvert.
         try {
-          const fetchChk = require('node-fetch');
           const { getConfig: getCfgChk } = require('./config-manager');
           const apiKeyChk = (getCfgChk() || {}).apiKey || '';
-          if (apiKeyChk && pecPdfB64) {
-            const chkRes = await fetchChk(site + '/api/desktop/praticien-check', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'x-api-key': apiKeyChk },
-              body: JSON.stringify({ pdfBase64: pecPdfB64, intent: 'pec' }),
-            });
-            const chkJson = await chkRes.json().catch(() => ({}));
-            if (chkRes.ok && chkJson && chkJson.blocked) {
+          if (apiKeyChk) {
+            const chk = await resolvePraticienAccount(CONFIG.siteUrl, apiKeyChk, pecPraticien, 'pec');
+            if (chk && chk.blocked) {
               log('[PEC] Praticien sans compte MDD -> blocage (wizard non ouvert)');
               try { hideLoader(); } catch (e) {}
               dialog.showMessageBoxSync({
                 type: 'warning',
                 title: 'Mon devis dentaire - Demande de PEC',
                 message: 'Demande de prise en charge bloquee.',
-                detail: chkJson.message ||
+                detail: chk.message ||
                   "Le praticien de ce devis n'a pas de compte sur Mon Devis Dentaire. Appelez Olivier au 06 46 73 10 65 pour qu'il cree votre espace.",
                 buttons: ['OK'],
               });
@@ -1397,7 +1468,7 @@ async function readAndOpenMdd(docName, intent) {
             }
           }
         } catch (eChk) {
-          log('[PEC] Pre-controle praticien echoue (non bloquant): ' + eChk.message);
+          log('[PEC] Controle compte praticien echoue (non bloquant): ' + eChk.message);
         }
 
         // Ouverture AVEC auto-login (magic-link via /api/desktop/session) ;
