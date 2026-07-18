@@ -14,9 +14,13 @@
  * PAS archivé -> nouvelle tentative au prochain tick. mark-archived n'est appelé
  * qu'après réécriture réussie, ce qui évite les doublons dans le dossier.
  */
+const os = require('os');
 const fetch = require('node-fetch');
 const { getConfig } = require('./config-manager');
 const logosWriter = require('./logos-devis-writer');
+
+// Identifiant du poste (nom machine) : sert au bail multi-poste (claim atomique).
+const POST_ID = os.hostname();
 
 let _logger = null;
 function setLogger(fn) { _logger = fn; logosWriter.setLogger(fn); }
@@ -125,6 +129,28 @@ async function returnToLogos(site, item) {
   return true;
 }
 
+/**
+ * Bail atomique multi-poste : réserve le devis signé avant de le réécrire dans
+ * Logos. Avec plusieurs postes (nombre quelconque) un seul gagne -> pas de doublon.
+ * false en cas d'erreur réseau (on n'écrit pas si on n'a pas pu réserver).
+ * @returns {Promise<boolean>} true si ce poste a le droit d'écrire.
+ */
+async function claimSigned(site, apiKey, token) {
+  try {
+    const res = await fetch(`${site}/api/desktop/signed-claim`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+      body: JSON.stringify({ token, postId: POST_ID }),
+    });
+    if (!res.ok) { log(`signed-claim HTTP ${res.status} (token ${String(token).slice(0, 8)})`); return false; }
+    const j = await res.json().catch(() => ({}));
+    return !!(j && j.claimed);
+  } catch (e) {
+    log(`signed-claim exception: ${e.message}`);
+    return false;
+  }
+}
+
 async function markArchived(site, apiKey, token) {
   try {
     const res = await fetch(`${site}/api/desktop/mark-archived`, {
@@ -161,6 +187,10 @@ async function tick() {
     // Séquentiel : évite toute contention sur ACTES_2 (l'exe ouvre/ferme le .fic).
     for (const item of items) {
       try {
+        // Bail atomique multi-poste : un seul poste réécrit ce devis signé.
+        if (!(await claimSigned(site, apiKey, item.token))) {
+          continue; // déjà pris par un autre poste -> on passe (pas de doublon)
+        }
         const done = await returnToLogos(site, item);
         if (done) await markArchived(site, apiKey, item.token);
       } catch (e) {

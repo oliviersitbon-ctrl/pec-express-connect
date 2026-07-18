@@ -22,9 +22,13 @@
  * ASCII only dans le libellé (« EUR », point décimal, « envoye ») : le champ
  * EXTRA de Logos casse sur les accents (cf. signed-docs-watcher).
  */
+const os = require('os');
 const fetch = require('node-fetch');
 const { getConfig } = require('./config-manager');
 const logosWriter = require('./logos-devis-writer');
+
+// Identifiant du poste (nom machine) : sert au bail multi-poste (claim atomique).
+const POST_ID = os.hostname();
 
 let _logger = null;
 function setLogger(fn) { _logger = fn; logosWriter.setLogger(fn); }
@@ -118,6 +122,29 @@ async function writePecLine(site, item) {
   return true;
 }
 
+/**
+ * Bail atomique multi-poste : tente de RÉSERVER la PEC avant d'écrire ses lignes.
+ * Avec plusieurs postes (nombre quelconque) sur le même cabinet, un seul gagne le
+ * bail -> pas de doublon d'écriture dans Logos. En cas d'erreur réseau on renvoie
+ * false (prudence : on n'écrit pas si on n'a pas pu réserver).
+ * @returns {Promise<boolean>} true si ce poste a le droit d'écrire.
+ */
+async function claimPecLine(site, apiKey, pecId) {
+  try {
+    const res = await fetch(`${site}/api/desktop/pec-line-claim`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+      body: JSON.stringify({ pecId, postId: POST_ID }),
+    });
+    if (!res.ok) { log(`pec-line-claim HTTP ${res.status} (pec ${String(pecId).slice(0, 8)})`); return false; }
+    const j = await res.json().catch(() => ({}));
+    return !!(j && j.claimed);
+  } catch (e) {
+    log(`pec-line-claim exception: ${e.message}`);
+    return false;
+  }
+}
+
 async function markWritten(site, apiKey, pecId, line) {
   try {
     const res = await fetch(`${site}/api/desktop/pec-line-written`, {
@@ -156,6 +183,12 @@ async function tick() {
       const short = String(item.pecId).slice(0, 8);
       if (!item.logosNumero) {
         log(`PEC ${short} sans n° dossier Logos -> ignorée`);
+        continue;
+      }
+
+      // Bail atomique multi-poste : un seul poste écrit cette PEC. Les autres
+      // passent (pas de doublon dans Logos, quel que soit le nombre de postes).
+      if (!(await claimPecLine(site, apiKey, item.pecId))) {
         continue;
       }
 
