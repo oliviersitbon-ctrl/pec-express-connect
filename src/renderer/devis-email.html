@@ -2,30 +2,40 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <title>Envoi de devis</title>
+  <title>Envoi de devis — Mon devis dentaire</title>
   <style>
     * { box-sizing:border-box; margin:0; padding:0; }
     body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,sans-serif;
       background:#f8fafc; color:#0f172a; padding:22px; }
+    .brand { display:flex; align-items:center; gap:10px; margin-bottom:16px; }
+    .brand .md { width:34px; height:34px; border-radius:10px; flex:none; display:flex;
+      align-items:center; justify-content:center; color:#fff; font-weight:800; font-size:13px;
+      letter-spacing:.4px; background:linear-gradient(135deg,#6366F1 0%,#8B5CF6 50%,#EC4899 100%);
+      box-shadow:0 6px 16px rgba(139,92,246,.35); }
+    .brand .name { font-size:13px; font-weight:700; color:#0f172a; }
     h1 { font-size:16px; margin-bottom:4px; }
     .sub { font-size:12.5px; color:#475569; margin-bottom:16px; line-height:1.45; }
     .sub b { color:#0f172a; }
     label { display:block; font-size:12px; font-weight:600; margin-bottom:6px; color:#334155; }
     input { width:100%; padding:10px 12px; font-size:13.5px; border:1px solid #cbd5e1;
       border-radius:8px; outline:none; }
-    input:focus { border-color:#6366f1; box-shadow:0 0 0 3px rgba(99,102,241,.18); }
+    input:focus { border-color:#8B5CF6; box-shadow:0 0 0 3px rgba(139,92,246,.18); }
     .row { display:flex; gap:10px; margin-top:18px; }
     button { flex:1; padding:11px; font-size:13.5px; font-weight:600; border:none;
       border-radius:8px; cursor:pointer; }
-    .send { color:#fff; background:linear-gradient(135deg,#0ea5e9,#6366f1); }
+    .send { color:#fff; background:linear-gradient(135deg,#6366F1 0%,#8B5CF6 50%,#EC4899 100%); }
     .send:disabled { opacity:.55; cursor:default; }
     .cancel { color:#334155; background:#e2e8f0; }
     #msg { margin-top:12px; font-size:12px; min-height:16px; color:#b91c1c; }
   </style>
 </head>
 <body>
+  <div class="brand">
+    <div class="md">MD</div>
+    <div class="name">Mon devis dentaire</div>
+  </div>
   <h1>Envoi de devis</h1>
-  <div class="sub" id="sub">Preparation de l'envoi...</div>
+  <div class="sub" id="sub">Préparation de l'envoi...</div>
   <label for="email">Adresse email du patient</label>
   <input id="email" type="email" placeholder="prenom.nom@email.fr" autocomplete="off" spellcheck="false">
   <div id="msg"></div>
@@ -43,12 +53,12 @@
 
     (async () => {
       try {
-        const info = await window.cabflow.devisEmailGet();
+        const info = await window.mdd.devisEmailGet();
         const who = (info && info.who) || 'le patient';
         const n = (info && info.acteCount) || 0;
         const total = (info && info.total) || '0.00';
         sub.innerHTML = 'Devis pour <b>' + who + '</b> — ' + n +
-          ' acte(s), total <b>' + total + ' €</b>.<br>Verifiez l\'adresse email, puis Envoyer.';
+          ' acte(s), total <b>' + total + ' €</b>.<br>Vérifiez l\'adresse email, puis Envoyer.';
         if (info && info.email) emailInput.value = info.email;
       } catch (e) {}
       emailInput.focus();
@@ -63,17 +73,17 @@
       submitted = true;
       sendBtn.disabled = true;
       msg.style.color = '#047857'; msg.textContent = 'Envoi en cours…';
-      window.cabflow.devisEmailSubmit({ confirmed: true, email: v });
+      window.mdd.devisEmailSubmit({ confirmed: true, email: v });
     }
     function cancel() {
       submitted = true;
-      window.cabflow.devisEmailSubmit({ confirmed: false });
+      window.mdd.devisEmailSubmit({ confirmed: false });
     }
     sendBtn.addEventListener('click', send);
     cancelBtn.addEventListener('click', cancel);
     emailInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
     window.addEventListener('beforeunload', () => {
-      if (!submitted) { try { window.cabflow.devisEmailSubmit({ confirmed: false }); } catch (e) {} }
+      if (!submitted) { try { window.mdd.devisEmailSubmit({ confirmed: false }); } catch (e) {} }
     });
   </script>
 </body>

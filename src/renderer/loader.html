@@ -132,11 +132,11 @@
         detailsEl.textContent = '';
       }
 
-      if (window.cabflow && window.cabflow.onLoaderReset) {
-        window.cabflow.onLoaderReset(resetUI);
+      if (window.mdd && window.mdd.onLoaderReset) {
+        window.mdd.onLoaderReset(resetUI);
       }
-      if (window.cabflow && window.cabflow.onLoaderPatientInfo) {
-        window.cabflow.onLoaderPatientInfo((data) => {
+      if (window.mdd && window.mdd.onLoaderPatientInfo) {
+        window.mdd.onLoaderPatientInfo((data) => {
           statusEl.textContent = 'Ouverture Mon devis dentaire PEC...';
           if (data && (data.nom || data.prenom)) {
             patientEl.textContent = ((data.prenom || '') + ' ' + (data.nom || '')).trim();

@@ -2,20 +2,27 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <title>Connecter ce poste</title>
+  <title>Connecter ce poste — Mon devis dentaire</title>
   <style>
     * { box-sizing:border-box; margin:0; padding:0; }
     body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,sans-serif;
       background:#f8fafc; color:#0f172a; padding:22px; }
+    .brand { display:flex; align-items:center; gap:10px; margin-bottom:18px; }
+    .brand .md { width:38px; height:38px; border-radius:11px; flex:none; display:flex;
+      align-items:center; justify-content:center; color:#fff; font-weight:800; font-size:15px;
+      letter-spacing:.5px; background:linear-gradient(135deg,#6366F1 0%,#8B5CF6 50%,#EC4899 100%);
+      box-shadow:0 6px 16px rgba(139,92,246,.35); }
+    .brand .name { font-size:14px; font-weight:700; color:#0f172a; }
+    .brand .name small { display:block; font-size:11px; font-weight:500; color:#64748b; letter-spacing:.2px; }
     h1 { font-size:16px; margin-bottom:6px; }
     p.hint { font-size:12.5px; color:#475569; line-height:1.45; margin-bottom:16px; }
     label { display:block; font-size:12px; font-weight:600; margin-bottom:6px; color:#334155; }
     input { width:100%; padding:10px 12px; font-size:13px; border:1px solid #cbd5e1;
       border-radius:8px; outline:none; font-family:ui-monospace,Menlo,Consolas,monospace; }
-    input:focus { border-color:#6366f1; box-shadow:0 0 0 3px rgba(99,102,241,.18); }
+    input:focus { border-color:#8B5CF6; box-shadow:0 0 0 3px rgba(139,92,246,.18); }
     button { margin-top:14px; width:100%; padding:11px; font-size:13.5px; font-weight:600;
       color:#fff; border:none; border-radius:8px; cursor:pointer;
-      background:linear-gradient(135deg,#0ea5e9,#6366f1); }
+      background:linear-gradient(135deg,#6366F1 0%,#8B5CF6 50%,#EC4899 100%); }
     button:disabled { opacity:.6; cursor:default; }
     #msg { margin-top:14px; font-size:12.5px; line-height:1.4; min-height:18px; }
     #msg.ok { color:#047857; }
@@ -23,12 +30,16 @@
   </style>
 </head>
 <body>
-  <h1>Connecter ce poste a votre compte</h1>
-  <p class="hint">Collez la cle du connecteur, disponible dans Mon devis dentaire :
-    <b>Parametres &rsaquo; Connecteur</b>. Elle relie ce poste Logos a votre cabinet
+  <div class="brand">
+    <div class="md">MD</div>
+    <div class="name">Mon devis dentaire<small>Connecteur Logos</small></div>
+  </div>
+  <h1>Connecter ce poste à votre compte</h1>
+  <p class="hint">Collez la clé du connecteur, disponible dans Mon devis dentaire :
+    <b>Paramètres &rsaquo; Connecteur</b>. Elle relie ce poste Logos à votre cabinet
     (compte standard ou Labora).</p>
-  <label for="key">Cle du connecteur</label>
-  <input id="key" type="text" placeholder="collez la cle ici" autocomplete="off" spellcheck="false">
+  <label for="key">Clé du connecteur</label>
+  <input id="key" type="text" placeholder="collez la clé ici" autocomplete="off" spellcheck="false">
   <button id="go">Connecter</button>
   <div id="msg"></div>
   <script>
@@ -39,17 +50,17 @@
     async function connect() {
       const k = (input.value || '').trim();
       msg.className = ''; msg.textContent = '';
-      if (!k) { msg.className = 'err'; msg.textContent = 'Veuillez coller la cle du connecteur.'; return; }
+      if (!k) { msg.className = 'err'; msg.textContent = 'Veuillez coller la clé du connecteur.'; return; }
       btn.disabled = true; msg.textContent = 'Connexion en cours...';
       try {
-        const r = await window.cabflow.pairConnect(k);
+        const r = await window.mdd.pairConnect(k);
         if (r && r.ok) {
           msg.className = 'ok';
-          msg.textContent = 'Poste connecte a ' + (r.cabinetName || 'votre cabinet')
-            + (r.isLabora ? ' (Labora)' : '') + '. Vous pouvez fermer cette fenetre.';
+          msg.textContent = 'Poste connecté à ' + (r.cabinetName || 'votre cabinet')
+            + (r.isLabora ? ' (Labora)' : '') + '. Vous pouvez fermer cette fenêtre.';
         } else {
           msg.className = 'err';
-          msg.textContent = 'Echec : ' + ((r && r.error) || 'cle invalide') + '.';
+          msg.textContent = 'Échec : ' + ((r && r.error) || 'clé invalide') + '.';
           btn.disabled = false;
         }
       } catch (e) {
