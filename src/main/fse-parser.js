@@ -8,12 +8,12 @@
  *
  * Pour le module Trust on n'a besoin que de deux choses, validées sur 50 FSE
  * réelles :
- *   - le NIR du patient (entête)       → pour retrouver ses coordonnées (CIVIL.FIC)
- *   - la/les DATE(S) d'acte (AAMMJJ)   → pour le déclencheur « acte du jour même »
+ *   - le NIR du patient (en-tête)       -> pour retrouver ses coordonnées (CIVIL.FIC)
+ *   - la/les DATE(S) d'acte (AAMMJJ)    -> pour le déclencheur « acte du jour même »
  *
- * Entête : "<cat><numeroAM(9)> <NIR(15)><numFSE(9)>…"
- * Actes  : la date AAMMJJ précède immédiatement le code d'acte (2 lettres),
- *          ex. "…0440026652019250708AXI…" → 250708 = 08/07/2025, code AXI.
+ * En-tête : "<cat><numeroAM(9)> <NIR(15)><numFSE(9)>…"
+ * Actes   : la date AAMMJJ précède immédiatement le code d'acte (2 lettres),
+ *           ex. "…0440026652019250708AXI…" -> 250708 = 08/07/2025, code AXI.
  * On ne garde que les dates plausibles (année 20xx, mois 01-12, jour 01-31),
  * ce qui écarte les faux positifs venant du numéro de FSE (année « 00 »).
  */

@@ -39,6 +39,13 @@ let _hotRect = null;   // zone cliquable des pastilles (px CSS relatifs a la fen
                        // rapportee par le renderer -> pre-arme la capture souris.
 let _cursorTimer = null;
 let _capturing = false;
+let _onDevisActive = null; // callback (throttle) appele quand la page Devis est
+                           // detectee -> permet de rafraichir l'etat des modules
+                           // (activation/desactivation PEC/Devis) SANS attendre le
+                           // refresh periodique (15 min). Le bouton disparait vite.
+let _lastActiveRefresh = 0;
+const ACTIVE_REFRESH_THROTTLE_MS = 20000;
+let _lastOverlayInfo = null; // dernier etat envoye au renderer (re-notif post-refresh)
 
 const OVERLAY_WIDTH = 300;
 const OVERLAY_HEIGHT = 32;
@@ -128,7 +135,9 @@ function hideOverlay() {
   // Epinglage: pendant un envoi (clic PEC/devis), on garde l'overlay visible
   // BUSY_PIN_MS meme si Logos perd le premier plan (Chrome s'ouvre devant) ->
   // la confirmation « Envoi en cours / ✓ Envoye » reste visible sans disparaitre.
-  if (Date.now() < _busyUntil) return;
+  // EXCEPTION: en suspension explicite (impression du devis), on DOIT masquer
+  // pour ne pas gener le clic imprimante simule -> l'epinglage ne s'applique pas.
+  if (!_suspended && Date.now() < _busyUntil) return;
   if (_overlayWin && _overlayWin.isVisible()) {
     _overlayWin.hide();
     if (_lastHideReason !== 'hidden') { log('Overlay CACHE'); _lastHideReason = 'hidden'; }
@@ -136,9 +145,29 @@ function hideOverlay() {
 }
 
 /**
+ * Ré-affiche l'overlay et le maintient ÉPINGLÉ quelques secondes pour que la
+ * confirmation « ✓ Envoyé » / « ✓ Ouvert » (affichée côté renderer au retour de
+ * l'action) soit RÉELLEMENT visible. Sans ça, après l'impression (suspension),
+ * l'overlay reste masqué tant que Logos n'est pas redevenu la fenêtre active
+ * (dialogue d'impression qui se ferme, Chrome qui s'ouvre pour la PEC) → la
+ * confirmation ne s'afficherait jamais. On force donc le show + on prolonge le
+ * busy-pin ; la détection normale reprend et masquera l'overlay une fois le pin
+ * expiré si on n'est plus sur la page Devis.
+ */
+function keepVisibleForConfirmation(ms) {
+  const dur = typeof ms === 'number' && ms > 0 ? ms : 5000;
+  _busyUntil = Math.max(_busyUntil, Date.now() + dur);
+  if (!_overlayWin || _overlayWin.isDestroyed()) return;
+  if (!_overlayWin.isVisible()) {
+    try { _overlayWin.showInactive(); log('Overlay ré-affiché (confirmation ✓)'); } catch (e) {}
+  }
+}
+
+/**
  * Envoie infos patient/devis au renderer overlay pour affichage
  */
 function updateOverlayInfo(info) {
+  _lastOverlayInfo = info; // memorise pour re-notifier apres un refresh modules
   if (!_overlayWin || _overlayWin.isDestroyed()) return;
   try {
     _overlayWin.webContents.send('overlay-info', info);
@@ -160,6 +189,7 @@ async function refreshDevisDetection() {
       // Logos n'est pas en avant -> cacher completement
       if (_lastHideReason !== r.reason) { log(`Logos = absent | raison=${r.reason}`); }
       _currentDevisInfo = null;
+      _busyUntil = 0; // Logos fermé -> l'épinglage d'envoi n'a plus lieu d'être
       hideOverlay();
       return;
     }
@@ -170,10 +200,23 @@ async function refreshDevisDetection() {
     // fermé (régression signalée). L'épinglage d'envoi (_busyUntil) est respecté
     // par hideOverlay, donc la confirmation reste visible pendant un envoi.
     if (!r.active) {
+      // Envoi en cours (busy-pin) : l'overlay reste ÉPINGLÉ visible. MAIS
+      // l'épinglage ne doit protéger QUE contre une bascule d'APPLICATION
+      // (Chrome s'ouvre devant Logos pendant un envoi -> 'logos-not-foreground')
+      // pour garder la confirmation visible. Si on est TOUJOURS dans Logos mais
+      // sur une AUTRE page (état civil… -> 'no-devis-window'), on masque même en
+      // busy-pin, sinon les boutons restent affichés hors de la page Devis
+      // (régression signalée). On garde _currentDevisInfo tant qu'on épingle.
+      const appSwitch = r.reason === 'logos-not-foreground';
+      if (appSwitch && Date.now() < _busyUntil) return;
+      if (!appSwitch) _busyUntil = 0; // on a quitté la page Devis DANS Logos
       if (_lastHideReason !== (r.reason || 'no-devis')) {
         log(`Pas sur page Devis (raison=${r.reason || '?'}) -> overlay masqué`);
       }
-      _currentDevisInfo = null;
+      // On NE remet PAS _currentDevisInfo à null ici : l'overlay est masqué (donc
+      // pas de clic possible), et le garder évite un "trou" au ré-affichage du
+      // MÊME devis (le bouton reste cohérent et cliquable dès qu'il réapparaît,
+      // sans attendre la lecture asynchrone).
       hideOverlay();
       return;
     }
@@ -181,7 +224,36 @@ async function refreshDevisDetection() {
     // On est sur la page Devis de Logos -> afficher (état à déterminer).
     showOverlay(r);
 
+    // Rafraîchit l'état des modules (PEC / Devis) au plus tôt quand on arrive sur
+    // la page Devis (throttle 20 s) : si le module a été désactivé côté site, le
+    // bouton disparaît en quelques secondes au lieu d'attendre le refresh 15 min.
+    if (_onDevisActive) {
+      const now = Date.now();
+      if (now - _lastActiveRefresh > ACTIVE_REFRESH_THROTTLE_MS) {
+        _lastActiveRefresh = now;
+        try {
+          Promise.resolve(_onDevisActive()).then(() => {
+            // Re-notifie le renderer -> il relit les modules et masque le bouton
+            // si un module vient d'être désactivé, sans attendre un nouvel
+            // événement foreground.
+            if (_lastOverlayInfo) updateOverlayInfo(_lastOverlayInfo);
+          }).catch(() => {});
+        } catch (e) {}
+      }
+    }
+
     if (r.devisId && r.patient) {
+      // Anti-course : si le devis affiché DIFFÈRE de celui déjà validé (ou qu'on
+      // n'en a aucun), on GRISE le bouton le temps de la lecture asynchrone ->
+      // pas de clic "dans le trou" (sinon "pas de devis actif"). Si c'est le MÊME
+      // devis, on garde le bouton actif (pas de clignotement, clic immédiat OK).
+      const sameDevis = _currentDevisInfo &&
+        String(_currentDevisInfo.devisId) === String(r.devisId);
+      if (!sameDevis) {
+        _currentDevisInfo = null;
+        updateOverlayInfo({ enabled: false, reason: 'Lecture du devis…' });
+      }
+
       // Page Devis detectee, verifier que le devis a des actes en RAM
       // IMPORTANT: filtrer par nom patient pour eviter de lire un vieux devis cache
       let hasActes = false;
@@ -411,6 +483,16 @@ function setOnLancerPec(fn) {
 }
 
 /**
+ * Enregistre un callback appelé (au plus une fois toutes les 20 s) quand la page
+ * Devis de Logos est détectée. Sert à rafraîchir vite l'état des modules
+ * (PEC/Devis) : une désactivation côté site masque le bouton en quelques
+ * secondes, sans attendre le refresh périodique.
+ */
+function setOnDevisActive(fn) {
+  _onDevisActive = fn;
+}
+
+/**
  * Suspend/reprend l'overlay. Suspendu: la fenetre est masquee et la detection
  * ne la reaffiche pas (utilise pendant l'impression auto du devis pour que
  * l'overlay n'intercepte PAS le clic sur l'icone imprimante de Logos).
@@ -453,6 +535,8 @@ module.exports = {
   stopOverlay,
   showOverlay,
   hideOverlay,
+  keepVisibleForConfirmation,
+  setOnDevisActive,
   setSuspended,
   readCurrentDevis // re-export pour faciliter
 };

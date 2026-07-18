@@ -1,9 +1,11 @@
+'use strict';
+
 /**
  * overlay-fiche.js
  *
  * Overlay flottant "Questionnaire MD" pour la page FICHE PATIENT (Etat civil)
- * de Logos. Bouton unique, place JUSTE A GAUCHE du bouton "Aide" (ancre sur sa
- * position reelle -> robuste a la resolution / mise a l'echelle Windows).
+ * de Logos. Bouton unique, placé JUSTE À GAUCHE du bouton "Aide" (ancre sur sa
+ * position réelle -> robuste à la résolution / mise à l'échelle Windows).
  *
  * Visible UNIQUEMENT quand :
  *   - Logos est au premier plan,
@@ -11,8 +13,8 @@
  *     Droits en ligne (ADRi) / Espace Sante ...),
  *   - la fenetre patient est au premier plan.
  *
- * Au clic : lit l'identite patient (nom/prenom via le titre, DDN via la RAM) et
- * appelle le callback fourni par index.js (qui POST /api/questionnaire/enqueue).
+ * Au clic : lit l'identité patient (nom/prénom via le titre, DDN via les champs)
+ * et appelle le callback fourni par index.js (qui POST /api/questionnaire/enqueue).
  */
 
 const { BrowserWindow, ipcMain, screen } = require('electron');
@@ -31,7 +33,7 @@ let _watcherProc = null;
 let _pollTimer = null;
 let _detectionInflight = false;
 let _suspended = false;
-let _currentFiche = null;   // { nom, prenom, numero, patientHwnd }
+let _currentFiche = null;   // { nom, prenom, numero, dob }
 let _onSend = null;         // callback index.js
 let _lastMaskLog = null;    // anti-spam : on ne loggue "Masque" qu'au changement d'etat
 
@@ -40,8 +42,8 @@ const OVERLAY_HEIGHT = 30;
 const GAP_LEFT_OF_AIDE = 8;  // ecart a gauche du bouton Aide
 const POLL_MS = 1500;
 
-// ── Detection page Etat civil + bouton Aide ────────────────────────────────
-// Renvoie JSON : { active, reason?, nom?, prenom?, numero?, patientHwnd?,
+// -- Detection page Etat civil + bouton Aide --------------------------------
+// Renvoie JSON : { active, reason?, name?, numero?, dob?, focused?,
 //   aideLeft?, aideTop?, aideRight?, aideBottom? }
 const PS_DETECT = String.raw`
 Add-Type @"
@@ -91,7 +93,6 @@ $cbTop = [FD+EnumProc]{ param($h,$l)
 [FD]::EnumWindows($cbTop,[IntPtr]::Zero) | Out-Null
 
 # 2) Fenetre FICHE = celle qui contient un bouton "Aide" + >=2 marqueurs Etat civil.
-#    (La fiche est une fenetre distincte, titre "Fiche d'etat civil".)
 $markerRx = "Enregistrer|Lire la carte|Droits en ligne|Espace Sant|carte Vitale"
 $ficheId = $null; $ficheHwnd = $null; $aide = $null
 foreach ($w in $script:wins) {
@@ -116,9 +117,7 @@ foreach ($w in $script:wins) {
 }
 if (-not $aide) { Write-Output '{"active":false,"reason":"not-etat-civil"}'; exit 0 }
 
-# 3) Lire les CHAMPS de la fiche affichée (contrôles Edit, via WM_GETTEXT). Ces
-#    valeurs sont liées au patient RÉELLEMENT à l'écran -> pas d'ambiguïté même
-#    si plusieurs dossiers sont ouverts, et DDN fiable (pas de scan RAM).
+# 3) Lire les CHAMPS de la fiche affichee (controles Edit, via WM_GETTEXT).
 $edits = New-Object System.Collections.ArrayList
 $cbe = [FD+EnumProc]{ param($h,$l)
   if ([FD]::IsWindowVisible($h)) {
@@ -137,21 +136,20 @@ $cbe = [FD+EnumProc]{ param($h,$l)
 }
 [FD]::EnumChildWindows($ficheHwnd,$cbe,[IntPtr]::Zero) | Out-Null
 
-# NUMERO de dossier = champ "chiffres purs" le plus à DROITE dans la zone haute
-# (le "Patient 401" est en haut-droite ; évite le code postal, plus bas/à gauche).
+# NUMERO de dossier = champ "chiffres purs" le plus a DROITE dans la zone haute.
 $numero = $null; $numL = -999999
 foreach ($e in $script:edits) {
   if ($e.T -match '^\d{1,6}$' -and $e.Top -lt 450 -and $e.L -gt $numL) { $numL = $e.L; $numero = $e.T }
 }
 
-# NIR -> année + mois de naissance (pour recouper la DDN).
+# NIR -> annee + mois de naissance (pour recouper la DDN).
 $nyy = $null; $nmm = $null
 foreach ($e in $script:edits) {
   if ($e.T -match '^\s*[12][\s]?(\d{2})[\s]?(\d{2})[\s]?\d{2}') { $nyy = $matches[1]; $nmm = $matches[2]; break }
 }
 
-# DDN = champ date JJ/MM/AAAA. Priorité à celle qui recoupe le NIR (mois+année),
-# sinon la date la plus HAUTE avec une année de naissance plausible (< année courante).
+# DDN = champ date JJ/MM/AAAA. Priorite a celle qui recoupe le NIR (mois+annee),
+# sinon la date la plus HAUTE avec une annee de naissance plausible.
 $dob = $null
 $dates = New-Object System.Collections.ArrayList
 foreach ($e in $script:edits) { if ($e.T -match '^(\d{2})/(\d{2})/(\d{4})$') { [void]$script:dates.Add($e) } }
@@ -168,8 +166,7 @@ if (-not $dob) {
   }
 }
 
-# NOM/PRENOM : fenetre patient dont le titre commence par CE numero (lié à la
-# fiche active). Repli : 1re fenetre "<num> - <nom>" si numero non lu.
+# NOM/PRENOM : fenetre patient dont le titre commence par CE numero.
 $name = $null
 if ($numero) {
   foreach ($w in $script:wins) {
@@ -213,7 +210,7 @@ function detectFichePage() {
   });
 }
 
-// Sépare "REY Brigitte" -> { nom:"REY", prenom:"Brigitte" } (tokens MAJ = nom).
+// Separe "REY Brigitte" -> { nom:"REY", prenom:"Brigitte" } (tokens MAJ = nom).
 function splitName(full) {
   const tokens = String(full || '').split(/\s+/).filter(Boolean);
   const nomTokens = [];
@@ -280,14 +277,13 @@ async function refresh() {
   try {
     const r = await detectFichePage();
     if (!r || !r.active || r.focused === false) {
-      // Log UNIQUEMENT au changement d'etat (sinon "Masque" spamme chaque poll).
       const motif = (r && r.active && r.focused === false) ? 'fiche pas au premier plan' : ((r && r.reason) || 'unknown');
       if (motif !== 'busy' && _lastMaskLog !== motif) { log('Masque | raison=' + motif); _lastMaskLog = motif; }
       _currentFiche = null;
       hideOverlay();
       return;
     }
-    _lastMaskLog = null; // reset : le prochain masquage sera logue une fois
+    _lastMaskLog = null;
     const { nom, prenom } = splitName(r.name);
     _currentFiche = { nom, prenom, numero: r.numero, dob: r.dob || null };
     showOverlay(r);

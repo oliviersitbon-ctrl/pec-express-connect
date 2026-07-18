@@ -951,12 +951,11 @@ async function sendDevisToPatient(data) {
   // Parse serveur KO -> PAS de repli local (lent) : on bloque et on invite à appeler.
   if (!devisData) {
     log('[DEVIS] Parseur serveur indisponible -> envoi bloque (appeler Olivier)');
-    dialog.showMessageBoxSync({
-      type: 'warning',
-      title: 'Mon devis dentaire - Envoi de devis',
-      message: "Le devis n'a pas pu etre analyse.",
-      detail: "Le devis n'a pas ete envoye. Appelez Olivier au 06 46 73 10 65.",
-      buttons: ['OK'],
+    require('./block-popup').show({
+      tone: 'error',
+      heading: "Devis non analysable",
+      message: "Le devis n'a pas pu être analysé automatiquement : il n'a pas été envoyé au patient.",
+      phone: '06 46 73 10 65',
     });
     return false;
   }
@@ -966,13 +965,11 @@ async function sendDevisToPatient(data) {
     const chk = await resolvePraticienAccount(site, apiKey, devisPraticien, 'devis');
     if (chk && chk.blocked) {
       log('[DEVIS] Praticien sans compte MDD -> envoi bloque');
-      dialog.showMessageBoxSync({
-        type: 'warning',
-        title: 'Mon devis dentaire - Envoi de devis',
-        message: 'Envoi bloque.',
-        detail: chk.message ||
-          "Le praticien de ce devis n'a pas de compte sur Mon Devis Dentaire. Appelez Olivier au 06 46 73 10 65 pour qu'il cree votre espace.",
-        buttons: ['OK'],
+      require('./block-popup').show({
+        tone: 'blocked',
+        heading: "Praticien sans compte MDD",
+        message: "Le praticien de ce devis n'a pas de compte sur Mon Devis Dentaire. Le devis n'a pas été envoyé. Appelez Olivier pour qu'il crée votre espace.",
+        phone: '06 46 73 10 65',
       });
       return false;
     }
@@ -1184,7 +1181,7 @@ async function readAndOpenMdd(docName, intent) {
     let stderr = '';
 
     // Capture aussi stderr pour extraire patientsDir + memoOffset utilises par MddReader
-    let mmoCtx = { patientsDir: null, memoOffset: null, patientId: null, devisId: null };
+    let mmoCtx = { patientsDir: null, memoOffset: null, patientId: null, devisId: null, iniPath: null };
     const proc = spawn(mddPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
 
     proc.stdout.on('data', (d) => { stdout += d.toString('utf8'); });
@@ -1197,6 +1194,10 @@ async function readAndOpenMdd(docName, intent) {
       if (mDir) { mmoCtx.patientId = parseInt(mDir[1], 10); mmoCtx.patientsDir = mDir[2].trim(); }
       const mSel = msg.match(/Devis selectionne:\s*(\d+)\s+date=\d+\s+memoOff=0x([0-9A-Fa-f]+)/);
       if (mSel) { mmoCtx.devisId = parseInt(mSel[1], 10); mmoCtx.memoOffset = parseInt(mSel[2], 16); }
+      // Chemin du LOGOS_w.INI (loggue par MddReader) -> memorise pour la
+      // decouverte portable des dossiers FSE (voir fse-watcher / logos-ini).
+      const mIni = msg.match(/INI=([A-Za-z]:\\[^\r\n]+\.INI)/i);
+      if (mIni) mmoCtx.iniPath = mIni[1].trim();
     });
 
     const timeout = setTimeout(() => {
@@ -1230,6 +1231,15 @@ async function readAndOpenMdd(docName, intent) {
             const cmDir = require('./config-manager');
             if (((cmDir.getConfig() || {}).logosPatientsDir) !== mmoCtx.patientsDir) {
               cmDir.setOverride('logosPatientsDir', mmoCtx.patientsDir);
+            }
+          } catch (e) {}
+        }
+        // Memorise aussi le chemin du LOGOS_w.INI (decouverte FSE portable).
+        if (mmoCtx.iniPath) {
+          try {
+            const cmIni = require('./config-manager');
+            if (((cmIni.getConfig() || {}).logosIniPath) !== mmoCtx.iniPath) {
+              cmIni.setOverride('logosIniPath', mmoCtx.iniPath);
             }
           } catch (e) {}
         }
@@ -1365,6 +1375,11 @@ async function readAndOpenMdd(docName, intent) {
           }
           try { await sendDevisToPatient(data); }
           catch (eDevis) { log('[DEVIS] Erreur envoi devis: ' + eDevis.message); }
+          // Ré-affiche l'overlay épinglé pour que la confirmation « ✓ Envoyé »
+          // (côté renderer, au retour de ce clic) soit bien visible après
+          // l'impression (sinon l'overlay reste masqué si Logos n'est pas encore
+          // redevenu la fenêtre active).
+          try { overlayMod.keepVisibleForConfirmation(5000); } catch (e) {}
           resolve(true);
           return;
         }
@@ -1432,12 +1447,11 @@ async function readAndOpenMdd(docName, intent) {
         // Parse serveur KO -> message « appeler Olivier », wizard non ouvert.
         if (pecParseFailed) {
           try { hideLoader(); } catch (e) {}
-          dialog.showMessageBoxSync({
-            type: 'warning',
-            title: 'Mon devis dentaire - Demande de PEC',
-            message: "Le devis n'a pas pu etre analyse.",
-            detail: "La demande de prise en charge n'a pas ete lancee. Appelez Olivier au 06 46 73 10 65.",
-            buttons: ['OK'],
+          require('./block-popup').show({
+            tone: 'error',
+            heading: "Devis non analysable",
+            message: "Le devis n'a pas pu être analysé automatiquement : la demande de prise en charge n'a pas été lancée.",
+            phone: '06 46 73 10 65',
           });
           resolve(false);
           return;
@@ -1455,13 +1469,11 @@ async function readAndOpenMdd(docName, intent) {
             if (chk && chk.blocked) {
               log('[PEC] Praticien sans compte MDD -> blocage (wizard non ouvert)');
               try { hideLoader(); } catch (e) {}
-              dialog.showMessageBoxSync({
-                type: 'warning',
-                title: 'Mon devis dentaire - Demande de PEC',
-                message: 'Demande de prise en charge bloquee.',
-                detail: chk.message ||
-                  "Le praticien de ce devis n'a pas de compte sur Mon Devis Dentaire. Appelez Olivier au 06 46 73 10 65 pour qu'il cree votre espace.",
-                buttons: ['OK'],
+              require('./block-popup').show({
+                tone: 'blocked',
+                heading: "Praticien sans compte MDD",
+                message: "Le praticien de ce devis n'a pas de compte sur Mon Devis Dentaire. La demande de prise en charge n'a pas été lancée. Appelez Olivier pour qu'il crée votre espace.",
+                phone: '06 46 73 10 65',
               });
               resolve(false);
               return;
@@ -1475,6 +1487,10 @@ async function readAndOpenMdd(docName, intent) {
         // repli automatique sur la session navigateur si indisponible.
         log('[MDDREADER] Ouverture de l assistant PEC (auto-login desktop)...');
         await openPecWizard(data);
+        // Ré-affiche l'overlay épinglé pour que la confirmation « ✓ Ouvert »
+        // reste visible même quand Chrome passe au premier plan (l'overlay est
+        // alwaysOnTop -> il flotte au-dessus le temps de la confirmation).
+        try { require('./overlay-pec').keepVisibleForConfirmation(5000); } catch (e) {}
         resolve(true);
       } catch (e) {
         log('[MDDREADER] JSON parse error: ' + e.message);
@@ -3123,6 +3139,9 @@ if (!gotTheLock) {
       // [OPT v1.0.16] WebSocket port 8082 desactive (legacy PecExpress Desktop, gain ~30 MB)
       // startWebSocketServer();
 
+      // Popup de blocage stylée (praticien sans compte / devis non analysable).
+      try { require('./block-popup').setLogger(log); } catch (e) {}
+
       // Overlay flottant "Demande de PEC / Envoi de devis" sur la page Devis de Logos
       try {
         const overlay = require('./overlay-pec');
@@ -3132,6 +3151,10 @@ if (!gotTheLock) {
           const ok = await readAndOpenMdd(doc, intent || 'pec');
           return { success: ok };
         });
+        // Refresh rapide des modules quand on arrive sur la page Devis (throttle
+        // 20 s côté overlay) -> une désactivation PEC/Devis masque le bouton en
+        // quelques secondes, sans attendre le refresh périodique (15 min).
+        try { overlay.setOnDevisActive(refreshModules); } catch (e) {}
         log('[STARTUP] Overlay Logos demarre');
       } catch (eOv) {
         log('[STARTUP] Overlay non demarre: ' + eOv.message);
@@ -3167,6 +3190,89 @@ if (!gotTheLock) {
         log('[STARTUP] Watcher ligne PEC signature demarre');
       } catch (ePl) {
         log('[STARTUP] Watcher ligne PEC non demarre (non bloquant): ' + ePl.message);
+      }
+
+      // Module TRUST — voie Logos : surveille le dossier SESAM/FSE. A chaque
+      // nouvelle FSE avec un acte du jour, retrouve le patient (NIR -> CIVIL.FIC)
+      // et POST vers submit-patient (source=logosw). Le SERVEUR applique le
+      // garde-fou trigger (n'envoie que si le cabinet a trigger=logosw) + tous
+      // les filtres (cooldown, max/RDV...). Rien n'est envoye tant que le trigger
+      // n'est pas regle sur "logosw" cote reglages du cabinet.
+      try {
+        const fseWatcher = require('./fse-watcher');
+        fseWatcher.setLogger(log);
+        fseWatcher.start(() => {
+          const c = require('./config-manager').getConfig() || {};
+          return {
+            patientsDir: c.logosPatientsDir || null,
+            logosIniPath: c.logosIniPath || null,
+            apiKey: c.apiKey || '',
+            siteUrl: (c.urls && c.urls.site) || CONFIG.siteUrl,
+          };
+        });
+        global._fseWatcher = fseWatcher;
+        log('[STARTUP] Watcher FSE->Trust demarre');
+      } catch (eFse) {
+        log('[STARTUP] Watcher FSE->Trust non demarre (non bloquant): ' + eFse.message);
+      }
+
+      // Bouton flottant "Questionnaire MD" sur la page Etat civil de Logos :
+      // au clic, envoie un questionnaire medical sur la TABLETTE du cabinet
+      // (meme flux que l'extension : POST /api/questionnaire/enqueue, source
+      // logos + n° dossier pour le retour dans Logos).
+      try {
+        const overlayFiche = require('./overlay-fiche');
+        overlayFiche.setLogger(log);
+        overlayFiche.startOverlay(async (fiche) => {
+          // fiche = { nom, prenom, numero, dob(JJ/MM/AAAA) }
+          const c = require('./config-manager').getConfig() || {};
+          const apiKey = c.apiKey || '';
+          if (!apiKey) return { ok: false, error: 'not-paired' };
+          const site = CONFIG.siteUrl; // routes /api/questionnaire/* sur le host MDD
+          const patientsDir = c.logosPatientsDir || null;
+          let email = null, phone = null, civility = null, dob = fiche.dob || null;
+          try {
+            if (patientsDir && fiche.numero) {
+              const civ = require('./logos-civil-reader').readPatientCivil(patientsDir, fiche.numero, {
+                expectedNom: fiche.nom, expectedPrenom: fiche.prenom,
+              });
+              if (civ) {
+                email = civ.email || null;
+                phone = civ.portable || null;
+                if (!dob && civ.dateNaissance) dob = civ.dateNaissance;
+                const cr = String(civ.civilite || '').toLowerCase();
+                civility = (cr.startsWith('mme') || cr === 'madame') ? 'mme' : (cr.startsWith('m') ? 'm' : null);
+              }
+            }
+          } catch (eCiv) { log('[QUESTIONNAIRE] lecture patient echouee: ' + eCiv.message); }
+          const payload = {
+            patient: { nom: fiche.nom, prenom: fiche.prenom, dateNaissance: dob, email, phone, civility },
+            sourceSystem: 'logos',
+            sourcePatientRef: fiche.numero != null ? String(fiche.numero) : null,
+          };
+          try {
+            const fetch = require('node-fetch');
+            const res = await fetch(`${site}/api/questionnaire/enqueue`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+              body: JSON.stringify(payload),
+            });
+            const j = await res.json().catch(() => ({}));
+            if (res.ok && j && j.ok) {
+              log('[QUESTIONNAIRE] envoye sur la tablette (queue=' + (j.queueId || '?') + ', patient ' + fiche.nom + ')');
+              return { ok: true };
+            }
+            log('[QUESTIONNAIRE] echec envoi: ' + (j.error || ('HTTP ' + res.status)));
+            return { ok: false, error: j.error || ('HTTP ' + res.status) };
+          } catch (ePost) {
+            log('[QUESTIONNAIRE] exception envoi: ' + ePost.message);
+            return { ok: false, error: ePost.message };
+          }
+        });
+        global._overlayFiche = overlayFiche;
+        log('[STARTUP] Overlay Questionnaire MD (fiche) demarre');
+      } catch (eFiche) {
+        log('[STARTUP] Overlay Questionnaire MD non demarre (non bloquant): ' + eFiche.message);
       }
 
       // [OPT v1.0.16] Modules legacy PecExpress Desktop desactives (pas d'imprimante en Mon devis dentaire Connecté)

@@ -30,6 +30,13 @@ contextBridge.exposeInMainWorld('mdd', {
   getModules: () => ipcRenderer.invoke('get-modules'),
   devisEmailGet: () => ipcRenderer.invoke('devis-email-get'),
   devisEmailSubmit: (payload) => ipcRenderer.send('devis-email-submit', payload),
+  // Popup de blocage (praticien sans compte MDD / devis non analysable).
+  blockPopupGet: () => ipcRenderer.invoke('block-popup-get'),
+  blockPopupClose: () => ipcRenderer.send('block-popup-close'),
+  // Bouton flottant "Questionnaire MD" (page Etat civil de Logos) -> envoi tablette.
+  sendQuestionnaire: () => ipcRenderer.invoke('overlay-questionnaire-send'),
+  setMouseIgnoreFiche: (ignore) => ipcRenderer.send('overlay-fiche-set-ignore', ignore),
+  onFicheInfo: (cb) => ipcRenderer.on('fiche-info', (e, data) => cb(data)),
   onOverlayInfo: (cb) => ipcRenderer.on('overlay-info', (e, data) => cb(data)),
   // Overlay click-through: true = traversant (icones Logos cliquables dessous),
   // false = capture (curseur sur les pastilles).

@@ -95,18 +95,28 @@
       wrap.classList.add('loading');
       const btn = intent === 'pec' ? bPec : bDev;
       const lbl = intent === 'pec' ? lblPec : lblDev;
-      lbl.textContent = 'Envoi en cours…';
+      lbl.textContent = intent === 'pec' ? 'Ouverture…' : 'Envoi en cours…';
+      let ok = false;
       try {
-        await window.mdd.lancerPec(intent);
-        lbl.textContent = '✓ Envoyé';
+        // On NE montre « ✓ Envoyé » QUE si le flux a réellement réussi
+        // (result.success). Sinon rien n'a été déclenché -> on ne ment pas.
+        const res = await window.mdd.lancerPec(intent);
+        ok = !!(res && res.success);
+      } catch (e) {
+        console.error('overlay error', e);
+        ok = false;
+      }
+      if (ok) {
+        lbl.textContent = intent === 'pec' ? '✓ Ouvert' : '✓ Envoyé';
         btn.classList.add('sent');
         setTimeout(() => {
           btn.classList.remove('sent');
           lbl.textContent = TEXT[intent];
           wrap.classList.remove('loading');
-        }, 5000);
-      } catch (e) {
-        console.error('overlay error', e);
+        }, 4000);
+      } else {
+        // Échec / rien déclenché : retour immédiat à l'état normal (le connecteur
+        // affiche lui-même le message d'erreur éventuel via une pop-up).
         lbl.textContent = TEXT[intent];
         wrap.classList.remove('loading');
       }
