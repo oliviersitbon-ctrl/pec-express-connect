@@ -1,5 +1,34 @@
 node_modules/
 dist/
 out/
+build/
 *.log
 .DS_Store
+
+# --- Débris de diagnostic / dev (racine uniquement) ---
+# Anchrés à la racine (/) pour ne JAMAIS toucher resources/win/*.ps1 (essentiels)
+# ni src/. Ce sont des fichiers de mise au point à ne pas versionner.
+/_*
+/brick2-*.ps1
+/hfsql-*.ps1
+/test-logoswdd*.ps1
+/find-*.ps1
+/inspect-logos.ps1
+/probe-toolbar.ps1
+/omnicab-scan.ps1
+/diag-*.ps1
+/logoswdd-cols.ps1
+/fic-names-utf16.ps1
+/extract-memoname.ps1
+/copy-wdd.ps1
+/replace-pdf.ps1
+/list-project.ps1
+/git-diff-connector.ps1
+/backup-prod-*/
+/wdd-versions/
+/analyse-v28/
+/after/
+/before/
+/MddButton.cs
+/MddButton.exe
+*.tmp

@@ -62,6 +62,10 @@ function exePath() {
     process.resourcesPath ? path.join(process.resourcesPath, 'native', 'LogosDevisWriter.exe') : null,
     // en dev (depuis le repo) : bundle dans resources/native
     path.join(__dirname, '..', '..', 'resources', 'native', 'LogosDevisWriter.exe'),
+    // repli resources/win (dossier TOUJOURS embarque via extraResources) : permet
+    // de faire fonctionner l'ecriture meme si l'exe est depose la plutot qu'en native.
+    process.resourcesPath ? path.join(process.resourcesPath, 'win', 'LogosDevisWriter.exe') : null,
+    path.join(__dirname, '..', '..', 'resources', 'win', 'LogosDevisWriter.exe'),
     // emplacement de compilation WinDev valide (l'exe tourne avec son runtime a cote)
     'C:\\Mes Projets\\Mon_Projet\\Exe\\LogosDevisWriter.exe',
   ].filter(Boolean);

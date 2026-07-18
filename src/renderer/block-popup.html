@@ -19,6 +19,7 @@
     .tone-blocked .icon { background:linear-gradient(135deg,#fee2e2,#fecaca); color:#dc2626; }
     .tone-error   .icon { background:linear-gradient(135deg,#fee2e2,#fecaca); color:#dc2626; }
     .tone-info    .icon { background:linear-gradient(135deg,#e0f2fe,#bae6fd); color:#0284c7; }
+    .tone-success .icon { background:linear-gradient(135deg,#dcfce7,#bbf7d0); color:#16a34a; }
     h1 { font-size:17px; font-weight:700; color:#0f172a; letter-spacing:-.2px; }
     .body { -webkit-app-region:drag; padding:14px 24px 0 24px; flex:1; }
     .msg { font-size:13.5px; line-height:1.5; color:#475569; }
@@ -79,7 +80,15 @@
 
   <script>
     const card = document.getElementById('card');
+    const iconEl = document.getElementById('icon');
     const heading = document.getElementById('heading');
+
+    // Icônes par ton (le triangle d'avertissement reste pour blocked/error).
+    const ICONS = {
+      warning: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+      info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>',
+      success: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>',
+    };
     const message = document.getElementById('message');
     const phoneBox = document.getElementById('phoneBox');
     const phoneNum = document.getElementById('phoneNum');
@@ -106,6 +115,11 @@
       if (d.heading) heading.textContent = d.heading;
       if (d.message) message.textContent = d.message;
       if (d.tone) card.className = 'card tone-' + d.tone;
+      // Icône adaptée au ton : info / succès ont leur propre glyphe.
+      const iconKey = d.tone === 'info' ? 'info' : d.tone === 'success' ? 'success' : 'warning';
+      iconEl.innerHTML = ICONS[iconKey];
+      // Le libellé au-dessus du numéro dit "Appelez Olivier" — sans téléphone,
+      // la boîte est masquée, donc aucun impact pour les popups info/succès.
       if (d.phone) {
         phoneNum.textContent = d.phone;
         phoneBox.hidden = false;

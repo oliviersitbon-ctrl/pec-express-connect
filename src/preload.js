@@ -96,12 +96,6 @@ contextBridge.exposeInMainWorld('mdd', {
   onLoaderPatientInfo: (callback) => {
     ipcRenderer.on('loader-patient-info', (event, data) => callback(data));
   },
-  
-  // Self-Installation
-  performSelfInstall: () => {
-    console.log('[PRELOAD] IPC invoke: perform-self-install');
-    return ipcRenderer.invoke('perform-self-install');
-  }
 });
 
 console.log('[PRELOAD] === window.mdd expose avec succes ===');

@@ -451,6 +451,18 @@ const CONFIG = {
   printerName: 'Mon devis dentaire PEC'
 };
 
+// Numéro de support affiché dans les pop-ups de blocage. Surchargable par cabinet
+// via config (config.supportPhone, ex. renseigné par la config cloud/overrides)
+// pour ne pas diffuser un numéro personnel en dur à tous les cabinets.
+const SUPPORT_PHONE_DEFAULT = '06 46 73 10 65';
+function supportPhone() {
+  try {
+    const p = (require('./config-manager').getConfig() || {}).supportPhone;
+    if (p && String(p).trim()) return String(p).trim();
+  } catch (e) {}
+  return SUPPORT_PHONE_DEFAULT;
+}
+
 // ============================================
 // MDDREADER READER — Lecture directe Logos (< 100ms, sans impression)
 // ============================================
@@ -845,12 +857,10 @@ async function sendDevisToPatient(data) {
 
   if (!apiKey) {
     log('[DEVIS] Aucune cle API configuree - appairez ce poste (menu tray).');
-    dialog.showMessageBoxSync({
-      type: 'warning',
-      title: 'Mon devis dentaire - Envoi de devis',
-      message: "Ce poste n'est pas encore connecte a votre compte.",
-      detail: 'Ouvrez le menu Mon devis dentaire (icone pres de l\'horloge), cliquez "Connecter ce poste..." et collez la cle du connecteur (Parametres > Connecteur).',
-      buttons: ['OK'],
+    require('./block-popup').show({
+      tone: 'info',
+      heading: "Poste non connecté",
+      message: "Ce poste n'est pas encore connecté à votre compte. Ouvrez le menu Mon devis dentaire (icône près de l'horloge), cliquez « Connecter ce poste… » et collez la clé du connecteur (Paramètres › Connecteur).",
     });
     return false;
   }
@@ -884,12 +894,10 @@ async function sendDevisToPatient(data) {
     email = (prompt.email || '').trim();
     if (!EMAIL_RE.test(email)) {
       log('[DEVIS] Email invalide/absent apres saisie: "' + email + '"');
-      dialog.showMessageBoxSync({
-        type: 'warning',
-        title: 'Mon devis dentaire - Envoi de devis',
-        message: 'Adresse email invalide.',
-        detail: "Le devis n'a pas ete envoye : renseignez une adresse email valide.",
-        buttons: ['OK'],
+      require('./block-popup').show({
+        tone: 'error',
+        heading: "Adresse email invalide",
+        message: "Le devis n'a pas été envoyé : renseignez une adresse email valide.",
       });
       return false;
     }
@@ -955,7 +963,7 @@ async function sendDevisToPatient(data) {
       tone: 'error',
       heading: "Devis non analysable",
       message: "Le devis n'a pas pu être analysé automatiquement : il n'a pas été envoyé au patient.",
-      phone: '06 46 73 10 65',
+      phone: supportPhone(),
     });
     return false;
   }
@@ -969,7 +977,7 @@ async function sendDevisToPatient(data) {
         tone: 'blocked',
         heading: "Praticien sans compte MDD",
         message: "Le praticien de ce devis n'a pas de compte sur Mon Devis Dentaire. Le devis n'a pas été envoyé. Appelez Olivier pour qu'il crée votre espace.",
-        phone: '06 46 73 10 65',
+        phone: supportPhone(),
       });
       return false;
     }
@@ -1017,12 +1025,10 @@ async function sendDevisToPatient(data) {
 
     if (res.status === 403 && /parsing/i.test(txt)) {
       log('[DEVIS] Parsing non encore valide (403): ' + txt.slice(0, 200));
-      dialog.showMessageBoxSync({
-        type: 'info',
-        title: 'Mon devis dentaire - Envoi de devis',
-        message: 'Votre logiciel est en cours de validation.',
-        detail: "L'envoi de devis sera disponible sous 24 h (validation du format Logos). Le devis n'a pas ete envoye.",
-        buttons: ['OK'],
+      require('./block-popup').show({
+        tone: 'info',
+        heading: "Logiciel en cours de validation",
+        message: "L'envoi de devis sera disponible sous 24 h (validation du format Logos). Le devis n'a pas été envoyé.",
       });
       return false;
     }
@@ -1030,12 +1036,10 @@ async function sendDevisToPatient(data) {
     if (!res.ok || json.ok === false || json.error) {
       const msg = (json && json.error) || ('HTTP ' + res.status);
       log('[DEVIS] Echec envoi: ' + msg + ' - ' + txt.slice(0, 200));
-      dialog.showMessageBoxSync({
-        type: 'error',
-        title: 'Mon devis dentaire - Envoi de devis',
-        message: "Le devis n'a pas pu etre envoye.",
-        detail: msg,
-        buttons: ['OK'],
+      require('./block-popup').show({
+        tone: 'error',
+        heading: "Envoi impossible",
+        message: "Le devis n'a pas pu être envoyé. " + msg,
       });
       return false;
     }
@@ -1074,25 +1078,21 @@ async function sendDevisToPatient(data) {
     // Popup de confirmation UNIQUEMENT quand on a du demander l'email (aucun email
     // enregistre). Si l'email etait deja enregistre -> envoi silencieux.
     if (!emailWasRegistered) {
-      dialog.showMessageBoxSync({
-        type: 'info',
-        title: 'Mon devis dentaire - Envoi de devis',
-        message: 'Devis envoye a ' + who + '.',
-        detail: email
-          ? ("Un email vient d'etre envoye a " + email + " avec le lien vers l'espace patient. Relance automatique chaque semaine sans reponse.")
-          : 'Le devis a ete enregistre.',
-        buttons: ['OK'],
+      require('./block-popup').show({
+        tone: 'success',
+        heading: "Devis envoyé à " + who,
+        message: email
+          ? ("Un email vient d'être envoyé à " + email + " avec le lien vers l'espace patient. Relance automatique chaque semaine sans réponse.")
+          : "Le devis a été enregistré.",
       });
     }
     return true;
   } catch (e) {
     log('[DEVIS] Exception envoi: ' + e.message);
-    dialog.showMessageBoxSync({
-      type: 'error',
-      title: 'Mon devis dentaire - Envoi de devis',
-      message: "Erreur reseau lors de l'envoi du devis.",
-      detail: e.message,
-      buttons: ['OK'],
+    require('./block-popup').show({
+      tone: 'error',
+      heading: "Erreur réseau",
+      message: "Erreur réseau lors de l'envoi du devis. " + e.message,
     });
     return false;
   }
@@ -1454,7 +1454,7 @@ async function readAndOpenMdd(docName, intent) {
             tone: 'error',
             heading: "Devis non analysable",
             message: "Le devis n'a pas pu être analysé automatiquement : la demande de prise en charge n'a pas été lancée.",
-            phone: '06 46 73 10 65',
+            phone: supportPhone(),
           });
           resolve(false);
           return;
@@ -1476,7 +1476,7 @@ async function readAndOpenMdd(docName, intent) {
                 tone: 'blocked',
                 heading: "Praticien sans compte MDD",
                 message: "Le praticien de ce devis n'a pas de compte sur Mon Devis Dentaire. La demande de prise en charge n'a pas été lancée. Appelez Olivier pour qu'il crée votre espace.",
-                phone: '06 46 73 10 65',
+                phone: supportPhone(),
               });
               resolve(false);
               return;
