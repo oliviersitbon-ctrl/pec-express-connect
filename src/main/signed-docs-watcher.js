@@ -72,10 +72,32 @@ async function downloadOcamPdf(site, token, docId) {
 }
 
 /**
- * Réécrit un devis signé (+ consentement) dans Logos.
- * @returns {Promise<boolean>} true si tout est écrit (=> archivable)
+ * Marque UNE pièce comme écrite dans Logos (idempotence par pièce). Best-effort :
+ * si l'appel échoue, la pièce sera éventuellement réécrite (doublon rare), jamais
+ * perdue.
  */
-async function returnToLogos(site, item) {
+async function markPiece(site, apiKey, token, piece, docId) {
+  try {
+    const res = await fetch(`${site}/api/desktop/signed-mark-piece`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+      body: JSON.stringify({ token, piece, docId: docId || null }),
+    });
+    if (!res.ok) log(`signed-mark-piece(${piece}) HTTP ${res.status} (token ${String(token).slice(0, 8)})`);
+  } catch (e) {
+    log(`signed-mark-piece(${piece}) exception: ${e.message}`);
+  }
+}
+
+/**
+ * Réécrit les pièces MANQUANTES d'un devis signé dans Logos (idempotence par
+ * pièce : on saute celles déjà écrites, on marque chacune après confirmation).
+ * En cas d'échec sur une pièce, on continue les autres et on renvoie false ->
+ * l'item n'est PAS archivé et seules les pièces encore manquantes repartiront au
+ * prochain tick (ou au redémarrage) : ni perte, ni doublon.
+ * @returns {Promise<boolean>} true si TOUTES les pièces dues sont écrites.
+ */
+async function returnToLogos(site, apiKey, item) {
   const numero = item.sourcePatientRef;
   if (!numero) {
     log(`Devis ${item.token.slice(0, 8)} sans n° dossier Logos (source_patient_ref) -> ignoré`);
@@ -83,50 +105,51 @@ async function returnToLogos(site, item) {
   }
   const ref = safeRef(item.devisRef || item.token.slice(0, 8));
   const prat = item.praticien || 'OS';
-  // NB : on n'ajoute PLUS le montant du devis au libellé des documents réécrits
-  // dans Logos (devis / consentement / accord PEC). Il n'a pas de sens sur le
-  // consentement ni l'accord (documents non facturés) et prêtait à confusion.
+  // Repli si serveur ancien (sans needDevis/needConsent) : on retombe sur "existe".
+  const needDevis = item.needDevis !== undefined ? item.needDevis : !!item.hasSignedDevis;
+  const needConsent = item.needConsent !== undefined ? item.needConsent : !!item.hasConsent;
+  let allOk = true;
 
-  // 1) Devis signé — seulement s'il existe un PDF signé (une PEC peut n'avoir
-  // que ses documents OCAM à renvoyer, sans devis PDF source).
-  if (item.hasSignedDevis) {
-    const devisBuf = await downloadPdf(site, item.token, 'pdf');
-    const rDevis = await logosWriter.writeSignedDoc(
-      numero, devisBuf, `Devis-signe-${ref}.pdf`, 'Devis signe', prat
-    );
-    if (!rDevis.ok) throw new Error(`écriture devis Logos KO: ${rDevis.result}`);
-    log(`Devis signé écrit dans dossier ${numero} (cle=${rDevis.cle})`);
-  } else {
-    log(`Pas de devis PDF signé pour ${item.token.slice(0, 8)} — on écrit consentement + docs OCAM`);
+  // 1) Devis signé (seulement s'il reste à écrire).
+  if (needDevis) {
+    try {
+      const devisBuf = await downloadPdf(site, item.token, 'pdf');
+      const r = await logosWriter.writeSignedDoc(numero, devisBuf, `Devis-signe-${ref}.pdf`, 'Devis signe', prat);
+      if (!r.ok) throw new Error(`non confirmé: ${r.confirmReason || r.result}`);
+      await markPiece(site, apiKey, item.token, 'devis');
+      log(`Devis signé écrit dans dossier ${numero} (cle=${r.cle})`);
+    } catch (e) { allOk = false; log(`Devis signé ${item.token.slice(0, 8)} -> échec (retry): ${e.message}`); }
   }
 
-  // 2) Consentement (si présent)
-  if (item.hasConsent) {
-    const consBuf = await downloadPdf(site, item.token, 'consent-pdf');
-    const rCons = await logosWriter.writeSignedDoc(
-      numero, consBuf, `Consentement-signe-${ref}.pdf`, 'Consentement signe', prat
-    );
-    if (!rCons.ok) throw new Error(`écriture consentement Logos KO: ${rCons.result}`);
-    log(`Consentement écrit dans dossier ${numero} (cle=${rCons.cle})`);
+  // 2) Consentement (seulement s'il reste à écrire).
+  if (needConsent) {
+    try {
+      const consBuf = await downloadPdf(site, item.token, 'consent-pdf');
+      const r = await logosWriter.writeSignedDoc(numero, consBuf, `Consentement-signe-${ref}.pdf`, 'Consentement signe', prat);
+      if (!r.ok) throw new Error(`non confirmé: ${r.confirmReason || r.result}`);
+      await markPiece(site, apiKey, item.token, 'consent');
+      log(`Consentement écrit dans dossier ${numero} (cle=${r.cle})`);
+    } catch (e) { allOk = false; log(`Consentement ${item.token.slice(0, 8)} -> échec (retry): ${e.message}`); }
   }
 
-  // 3) Documents OCAM signés (Demande + Accord de prise en charge), s'il y en a.
-  // Même mécanisme que devis/consentement : un document cliquable par PDF dans le
-  // dossier Logos. Libellé ASCII (accents cassent le champ EXTRA).
+  // 3) Documents OCAM signés ENCORE À ÉCRIRE (le serveur ne renvoie que ceux-là).
+  // Libellé ASCII (accents cassent le champ EXTRA de Logos).
   const ocamDocs = Array.isArray(item.ocamDocs) ? item.ocamDocs : [];
-  for (let i = 0; i < ocamDocs.length; i++) {
-    const od = ocamDocs[i];
+  for (const od of ocamDocs) {
     if (!od || !od.docId) continue;
-    const buf = await downloadOcamPdf(site, item.token, od.docId);
-    const asciiLabel = String(od.label || 'Document PEC signe')
-      .normalize('NFD').replace(/[̀-ͯ]/g, '');
-    const rOcam = await logosWriter.writeSignedDoc(
-      numero, buf, `PEC-doc-signe-${ref}-${i + 1}.pdf`, asciiLabel, prat
-    );
-    if (!rOcam.ok) throw new Error(`écriture document OCAM Logos KO: ${rOcam.result}`);
-    log(`Document OCAM « ${asciiLabel} » écrit dans dossier ${numero} (cle=${rOcam.cle})`);
+    try {
+      const buf = await downloadOcamPdf(site, item.token, od.docId);
+      const asciiLabel = String(od.label || 'Document PEC signe').normalize('NFD').replace(/[̀-ͯ]/g, '');
+      const r = await logosWriter.writeSignedDoc(
+        numero, buf, `PEC-doc-signe-${ref}-${String(od.docId).slice(0, 6)}.pdf`, asciiLabel, prat,
+      );
+      if (!r.ok) throw new Error(`non confirmé: ${r.confirmReason || r.result}`);
+      await markPiece(site, apiKey, item.token, 'ocam', od.docId);
+      log(`Document OCAM « ${asciiLabel} » écrit dans dossier ${numero} (cle=${r.cle})`);
+    } catch (e) { allOk = false; log(`Doc OCAM ${String(od.docId).slice(0, 6)} -> échec (retry): ${e.message}`); }
   }
-  return true;
+
+  return allOk;
 }
 
 /**
@@ -191,7 +214,7 @@ async function tick() {
         if (!(await claimSigned(site, apiKey, item.token))) {
           continue; // déjà pris par un autre poste -> on passe (pas de doublon)
         }
-        const done = await returnToLogos(site, item);
+        const done = await returnToLogos(site, apiKey, item);
         if (done) await markArchived(site, apiKey, item.token);
       } catch (e) {
         log(`Devis ${String(item.token).slice(0, 8)} -> échec (retry au prochain tick): ${e.message}`);
