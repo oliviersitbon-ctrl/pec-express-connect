@@ -38,14 +38,18 @@ function findIniPath(hintPath) {
 }
 
 /**
- * Lit l'INI et renvoie { iniPath, patientsDir, codes[] }. Ne lève jamais.
+ * Lit l'INI et renvoie { iniPath, patientsDir, codes[], idPoste, nomUtil }.
+ * Ne lève jamais.
+ *   - idPoste : [RESEAU] IDPOSTE — identifiant unique DE CE poste (attribué par
+ *     Logos). Sert à identifier/lister chaque poste (garde-fou d'appairage).
+ *   - nomUtil : GPID_NomUtil — nom du praticien courant (affichage/appoint).
  */
 function readIni(hintPath) {
   const iniPath = findIniPath(hintPath);
-  if (!iniPath) return { iniPath: null, patientsDir: null, codes: [] };
+  if (!iniPath) return { iniPath: null, patientsDir: null, codes: [], idPoste: null, nomUtil: null };
   let txt = '';
   try { txt = fs.readFileSync(iniPath).toString('latin1'); }
-  catch (e) { log('lecture INI échouée: ' + e.message); return { iniPath, patientsDir: null, codes: [] }; }
+  catch (e) { log('lecture INI échouée: ' + e.message); return { iniPath, patientsDir: null, codes: [], idPoste: null, nomUtil: null }; }
 
   // Répertoire_Patients (le « é » accentué est ignoré en matchant sur la fin de clé).
   const mPat = txt.match(/pertoire_Patients\s*=\s*([^\r\n]+)/i);
@@ -60,7 +64,13 @@ function readIni(hintPath) {
     if (mPrat && mPrat[1].trim()) codes.push(mPrat[1].trim());
   }
 
-  return { iniPath, patientsDir, codes };
+  // IDPOSTE ([RESEAU]) : identifiant unique de ce poste. Nom praticien courant.
+  const mId = txt.match(/^\s*IDPOSTE\s*=\s*([^\r\n]+)/im);
+  const idPoste = mId && mId[1].trim() ? mId[1].trim() : null;
+  const mNom = txt.match(/GPID_NomUtil\s*=\s*([^\r\n]+)/i);
+  const nomUtil = mNom && mNom[1].trim() ? mNom[1].trim() : null;
+
+  return { iniPath, patientsDir, codes, idPoste, nomUtil };
 }
 
 /**

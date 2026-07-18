@@ -763,6 +763,52 @@ async function refreshModules() {
 }
 
 /**
+ * Enregistre CE poste auprès du serveur (garde-fou multi-poste — observabilité).
+ * Remonte l'identité UNIQUE du magasin de données Logos (storeId = fichier
+ * .mdd\store-id.txt du dossier patients partagé) + l'IDPOSTE + des infos
+ * d'affichage. Le serveur classe le poste (même magasin = même cabinet).
+ * Non bloquant : n'empêche jamais l'appairage ni le fonctionnement.
+ */
+async function registerPoste() {
+  try {
+    const cm = require('./config-manager');
+    const cfg = cm.getConfig() || {};
+    const apiKey = cfg.apiKey || '';
+    if (!apiKey) return; // pas encore appairé
+    const site = (cfg.urls && cfg.urls.site) || CONFIG.siteUrl;
+
+    const ini = require('./logos-ini').readIni(cfg.logosIniPath);
+    const patientsDir = ini.patientsDir || cfg.logosPatientsDir || null;
+    if (!patientsDir) { log('[POSTE] dossier patients inconnu -> enregistrement différé'); return; }
+
+    const storeIdMod = require('./logos-store-id');
+    const storeId = storeIdMod.readOrCreateStoreId(patientsDir);
+    const share = storeIdMod.deriveShare(patientsDir);
+    const os = require('os');
+    const practitioners = [(ini.codes || []).join(','), ini.nomUtil || ''].filter(Boolean).join(' — ') || null;
+
+    const payload = {
+      idPoste: ini.idPoste || os.hostname(), // repli hostname si IDPOSTE absent
+      hostname: os.hostname(),
+      storeId: storeId || null,
+      patientsShare: share || null,
+      practitioners,
+    };
+    const fetch = require('node-fetch');
+    const res = await fetch(site + '/api/desktop/poste-register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+      body: JSON.stringify(payload),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (res.ok && j && j.ok) log('[POSTE] enregistré (statut ' + (j.status || '?') + ', store ' + String(storeId || '—').slice(0, 8) + ')');
+    else log('[POSTE] enregistrement HTTP ' + res.status);
+  } catch (e) {
+    log('[POSTE] enregistrement échec (non bloquant): ' + e.message);
+  }
+}
+
+/**
  * Parseur devis CÔTÉ SERVEUR — helper PARTAGÉ par la voie « Devis » et la voie
  * « PEC » (principe : le connecteur est un RELAIS, tout passe par le serveur).
  * Envoie le PDF officiel Logos au parseur du site (/api/devis/parse, profil
@@ -856,12 +902,10 @@ async function sendDevisToPatient(data) {
   const apiKey = cfg.apiKey || '';
 
   if (!apiKey) {
-    log('[DEVIS] Aucune cle API configuree - appairez ce poste (menu tray).');
-    require('./block-popup').show({
-      tone: 'info',
-      heading: "Poste non connecté",
-      message: "Ce poste n'est pas encore connecté à votre compte. Ouvrez le menu Mon devis dentaire (icône près de l'horloge), cliquez « Connecter ce poste… » et collez la clé du connecteur (Paramètres › Connecteur).",
-    });
+    // Poste non appairé : on ouvre directement la fenêtre « Connecter ce poste »
+    // pour que l'utilisateur colle sa clé sur-le-champ (onboarding fluide).
+    log('[DEVIS] Poste non appairé -> ouverture de la fenêtre de connexion');
+    try { openConnectWindow(); } catch (e) { log('[DEVIS] ouverture fenêtre connexion KO: ' + e.message); }
     return false;
   }
 
@@ -1458,6 +1502,19 @@ async function readAndOpenMdd(docName, intent) {
           });
           resolve(false);
           return;
+        }
+
+        // Poste non appairé : plutôt que d'ouvrir le wizard en login manuel, on
+        // ouvre la fenêtre « Connecter ce poste » pour coller la clé sur-le-champ.
+        {
+          const { getConfig: getCfgPair } = require('./config-manager');
+          if (!((getCfgPair() || {}).apiKey || '')) {
+            log('[PEC] Poste non appairé -> ouverture de la fenêtre de connexion');
+            try { hideLoader(); } catch (e) {}
+            try { openConnectWindow(); } catch (e) { log('[PEC] ouverture fenêtre connexion KO: ' + e.message); }
+            resolve(false);
+            return;
+          }
         }
 
         // ── Contrôle compte praticien (SUR LOGOS, AVANT d'ouvrir Chrome) ─────
@@ -2804,6 +2861,9 @@ function setupIpcHandlers() {
         cm.setOverride('modules', { pec: json.modules.pec !== false, devis: json.modules.devis !== false });
       }
       log('[PAIR] Poste connecte a ' + (json.cabinetName || '?') + ' (' + base + ', labora=' + !!json.isLabora + ')');
+      // Enregistre le poste (store-id + IDPOSTE) juste après l'appairage — garde-fou
+      // multi-poste (observabilité). Non bloquant.
+      try { registerPoste(); } catch (e) {}
       return { ok: true, cabinetName: json.cabinetName || '', base, isLabora: !!json.isLabora };
     } catch (e) {
       log('[PAIR] Erreur appairage: ' + e.message);
@@ -3132,7 +3192,8 @@ if (!gotTheLock) {
         log('Configuration chargee OK');
         startUpdateChecker();
         refreshModules();
-        setInterval(refreshModules, 15 * 60 * 1000);
+        registerPoste();
+        setInterval(() => { refreshModules(); registerPoste(); }, 15 * 60 * 1000);
       }).catch(err => {
         log('Erreur chargement config: ' + err.message);
       });
@@ -3230,7 +3291,12 @@ if (!gotTheLock) {
           // fiche = { nom, prenom, numero, dob(JJ/MM/AAAA) }
           const c = require('./config-manager').getConfig() || {};
           const apiKey = c.apiKey || '';
-          if (!apiKey) return { ok: false, error: 'not-paired' };
+          if (!apiKey) {
+            // Poste non appairé -> on ouvre la fenêtre de connexion pour coller la clé.
+            log('[QUESTIONNAIRE] Poste non appairé -> ouverture de la fenêtre de connexion');
+            try { openConnectWindow(); } catch (e) {}
+            return { ok: false, error: 'not-paired' };
+          }
           const site = CONFIG.siteUrl; // routes /api/questionnaire/* sur le host MDD
           const patientsDir = c.logosPatientsDir || null;
           let email = null, phone = null, civility = null, dob = fiche.dob || null;
