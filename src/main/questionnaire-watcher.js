@@ -13,10 +13,18 @@
  *
  * Robuste : chaque questionnaire est traité indépendamment ; en cas d'échec on NE
  * marque PAS archivé -> nouvelle tentative au prochain tick (pas de doublon).
+ *
+ * Multi-poste : AVANT d'écrire, on réserve le questionnaire via un bail atomique
+ * (/api/desktop/questionnaire-claim, comme devis/PEC). Un seul poste gagne ->
+ * pas de double écriture du PDF quand plusieurs postes tournent en parallèle.
  */
 const fetch = require('node-fetch');
+const os = require('os');
 const { getConfig } = require('./config-manager');
 const logosWriter = require('./logos-devis-writer');
+
+// Identifiant du poste (nom machine) : sert au bail multi-poste (claim atomique).
+const POST_ID = os.hostname();
 
 let _logger = null;
 function setLogger(fn) { _logger = fn; logosWriter.setLogger(fn); }
@@ -76,6 +84,27 @@ async function returnToLogos(site, item) {
   return true;
 }
 
+/**
+ * Bail atomique multi-poste : réserve le questionnaire avant de réécrire le PDF
+ * dans Logos. true = ce poste gagne et écrit ; false = déjà pris par un autre
+ * (ou erreur réseau : on n'écrit pas si on n'a pas pu réserver -> pas de doublon).
+ */
+async function claimQuestionnaire(site, apiKey, token) {
+  try {
+    const res = await fetch(`${site}/api/desktop/questionnaire-claim`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+      body: JSON.stringify({ token, postId: POST_ID }),
+    });
+    if (!res.ok) { log(`questionnaire-claim HTTP ${res.status} (token ${String(token).slice(0, 8)})`); return false; }
+    const j = await res.json().catch(() => ({}));
+    return !!(j && j.claimed);
+  } catch (e) {
+    log(`questionnaire-claim exception: ${e.message}`);
+    return false;
+  }
+}
+
 async function markArchived(site, apiKey, token) {
   try {
     const res = await fetch(`${site}/api/desktop/questionnaire-archived`, {
@@ -112,6 +141,11 @@ async function tick() {
     // Séquentiel : évite la contention sur le .fic Logos (l'exe ouvre/ferme).
     for (const item of items) {
       try {
+        // Réservation atomique : un seul poste écrit ce questionnaire.
+        if (!(await claimQuestionnaire(site, apiKey, item.token))) {
+          log(`Questionnaire ${String(item.token).slice(0, 8)} déjà réservé par un autre poste -> skip`);
+          continue;
+        }
         const done = await returnToLogos(site, item);
         if (done) await markArchived(site, apiKey, item.token);
       } catch (e) {
