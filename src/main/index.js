@@ -1366,6 +1366,40 @@ async function readAndOpenMdd(docName, intent) {
           log('[PEC] Parsing serveur PEC échoué (non bloquant): ' + ePecParse.message);
         }
 
+        // ── Pré-contrôle praticien (SUR LOGOS, AVANT d'ouvrir Chrome) ────────
+        // Si le praticien du devis n'a pas de compte MDD, on bloque ici avec une
+        // pop-up native et on N'OUVRE PAS le wizard (symétrie avec l'envoi de
+        // devis). Non bloquant en cas d'erreur technique (fail-open ciblé).
+        try {
+          const fetchChk = require('node-fetch');
+          const { getConfig: getCfgChk } = require('./config-manager');
+          const apiKeyChk = (getCfgChk() || {}).apiKey || '';
+          if (apiKeyChk && pecPdfB64) {
+            const chkRes = await fetchChk(site + '/api/desktop/praticien-check', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'x-api-key': apiKeyChk },
+              body: JSON.stringify({ pdfBase64: pecPdfB64, intent: 'pec' }),
+            });
+            const chkJson = await chkRes.json().catch(() => ({}));
+            if (chkRes.ok && chkJson && chkJson.blocked) {
+              log('[PEC] Praticien sans compte MDD -> blocage (wizard non ouvert)');
+              try { hideLoader(); } catch (e) {}
+              dialog.showMessageBoxSync({
+                type: 'warning',
+                title: 'Mon devis dentaire - Demande de PEC',
+                message: 'Demande de prise en charge bloquee.',
+                detail: chkJson.message ||
+                  "Le praticien de ce devis n'a pas de compte sur Mon Devis Dentaire. Appelez Olivier au 06 46 73 10 65 pour qu'il cree votre espace.",
+                buttons: ['OK'],
+              });
+              resolve(false);
+              return;
+            }
+          }
+        } catch (eChk) {
+          log('[PEC] Pre-controle praticien echoue (non bloquant): ' + eChk.message);
+        }
+
         // Ouverture AVEC auto-login (magic-link via /api/desktop/session) ;
         // repli automatique sur la session navigateur si indisponible.
         log('[MDDREADER] Ouverture de l assistant PEC (auto-login desktop)...');
