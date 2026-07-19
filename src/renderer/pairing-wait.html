@@ -45,14 +45,7 @@
     h1 { font-size: 17px; font-weight: 700; margin-bottom: 8px; }
     p { font-size: 13px; color: #475569; line-height: 1.5; }
 
-    .code {
-      margin: 16px auto 4px;
-      font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-      font-size: 22px; font-weight: 700; letter-spacing: 5px;
-      color: #0f172a; background: #f1f5f9; border-radius: 12px;
-      padding: 10px 14px; display: inline-block;
-    }
-    .hint { font-size: 11px; color: #94a3b8; margin-top: 4px; }
+    .hint { font-size: 12px; color: #94a3b8; margin-top: 14px; }
 
     .ok-icon, .warn-icon {
       width: 52px; height: 52px; border-radius: 50%; margin: 4px auto 12px;
@@ -90,7 +83,6 @@
       <h1>Validez ce poste dans votre navigateur</h1>
       <p>Une page vient de s'ouvrir dans votre navigateur. Connectez-vous à votre
          espace Mon devis dentaire et cliquez sur <strong>« Connecter ce poste »</strong>.</p>
-      <div class="code" id="code">--------</div>
       <div class="hint">Ce poste attend la validation…</div>
       <div class="actions">
         <button class="btn-ghost" id="reopen">Rouvrir la page dans le navigateur</button>
@@ -132,7 +124,6 @@
     if (window.mdd) {
       window.mdd.onPairInfo(function (data) {
         _url = (data && data.url) || '';
-        if (data && data.userCode) document.getElementById('code').textContent = data.userCode;
       });
       window.mdd.onPairStatus(function (data) {
         if (!data) return;
