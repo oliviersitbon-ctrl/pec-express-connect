@@ -54,22 +54,52 @@ function defaultPractitionerCode() {
 }
 const RESULT_FILE = 'C:\\ProgramData\\PecExpress\\logos-write-result.txt';
 
+// Recherche bornee d'un fichier par nom sous une racine (portable, aucun chemin
+// en dur). Filet de securite : si un futur build deplace l'exe, on le retrouve
+// quand meme sous process.resourcesPath, quel que soit le niveau d'imbrication.
+function findFileRecursive(root, name, maxDepth) {
+  const stack = [{ dir: root, depth: 0 }];
+  const target = String(name).toLowerCase();
+  while (stack.length) {
+    const { dir, depth } = stack.pop();
+    let entries = [];
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { continue; }
+    for (const e of entries) {
+      const full = path.join(dir, e.name);
+      if (e.isFile() && e.name.toLowerCase() === target) return full;
+      if (e.isDirectory() && depth < maxDepth) stack.push({ dir: full, depth: depth + 1 });
+    }
+  }
+  return null;
+}
+
 function exePath() {
+  const EXE = 'LogosDevisWriter.exe';
   const candidates = [
     // surcharge explicite (test / poste specifique)
     process.env.LOGOS_WRITER_EXE || null,
-    // en prod (app installee) : bundle dans resources/native
-    process.resourcesPath ? path.join(process.resourcesPath, 'native', 'LogosDevisWriter.exe') : null,
-    // en dev (depuis le repo) : bundle dans resources/native
-    path.join(__dirname, '..', '..', 'resources', 'native', 'LogosDevisWriter.exe'),
-    // repli resources/win (dossier TOUJOURS embarque via extraResources) : permet
-    // de faire fonctionner l'ecriture meme si l'exe est depose la plutot qu'en native.
-    process.resourcesPath ? path.join(process.resourcesPath, 'win', 'LogosDevisWriter.exe') : null,
-    path.join(__dirname, '..', '..', 'resources', 'win', 'LogosDevisWriter.exe'),
-    // emplacement de compilation WinDev valide (l'exe tourne avec son runtime a cote)
-    'C:\\Mes Projets\\Mon_Projet\\Exe\\LogosDevisWriter.exe',
+    // PROD (app installee) : extraResources copie "resources/native" ->
+    // <resources>/resources/native (DOUBLE "resources"), EXACTEMENT comme
+    // MddNative.dll (cf. native-dll.js). C'est le chemin REEL de livraison.
+    process.resourcesPath ? path.join(process.resourcesPath, 'resources', 'native', EXE) : null,
+    process.resourcesPath ? path.join(process.resourcesPath, 'resources', 'win', EXE) : null,
+    // ancien schema / dev (depuis le repo) : resources/native au 1er niveau
+    process.resourcesPath ? path.join(process.resourcesPath, 'native', EXE) : null,
+    path.join(__dirname, '..', '..', 'resources', 'native', EXE),
+    process.resourcesPath ? path.join(process.resourcesPath, 'win', EXE) : null,
+    path.join(__dirname, '..', '..', 'resources', 'win', EXE),
   ].filter(Boolean);
-  return candidates.find(p => fs.existsSync(p)) || candidates[candidates.length - 1];
+  const known = candidates.find(p => fs.existsSync(p));
+  if (known) return known;
+  // ROBUSTESSE : si le packaging rebouge, on cherche l'exe PARTOUT sous resources
+  // (borne en profondeur, portable, aucun chemin machine en dur).
+  try {
+    if (process.resourcesPath) {
+      const hit = findFileRecursive(process.resourcesPath, EXE, 4);
+      if (hit) return hit;
+    }
+  } catch (e) {}
+  return 'C:\\Mes Projets\\Mon_Projet\\Exe\\' + EXE; // dernier recours dev, jamais atteint en prod
 }
 
 /**

@@ -1,6 +1,6 @@
 {
   "name": "pec-express-connect",
-  "version": "1.0.54",
+  "version": "1.0.55",
   "description": "Mon devis dentaire Connecté - Pont entre Logos (logiciel dentaire) et PEC Express (mondevisdentaire). Imprimante virtuelle + bouton in-app Logos.",
   "main": "src/main/index.js",
   "author": "PEC Express",
