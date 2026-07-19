@@ -902,7 +902,10 @@ async function resolvePraticienAccount(site, apiKey, praticien, intent) {
   }
 }
 
-async function sendDevisToPatient(data) {
+async function sendDevisToPatient(data, opts = {}) {
+  // sinceMs = instant du clic d'impression (voie devis). Passe par la voie PEC :
+  // on n'accepte QUE le PDF genere par CETTE impression (jamais un devis perime).
+  const sinceMs = (opts && opts.sinceMs) || null;
   const fetch = require('node-fetch');
   const { getConfig } = require('./config-manager');
   const cfg = getConfig() || {};
@@ -982,13 +985,13 @@ async function sendDevisToPatient(data) {
   try {
     const devisPdf = require('./logos-devis-pdf');
     devisPdf.setLogger(log);
-    let found = devisPdf.findLatestDevisPdf(data.patientsDir, data.logosNumero, data.devisId);
+    let found = devisPdf.findLatestDevisPdf(data.patientsDir, data.logosNumero, data.devisId, true, sinceMs);
     // Filet de securite anti-course : si le PDF n'est pas encore la (Logos finit
     // de l'ecrire), on patiente et on re-scanne AVANT d'envoyer -> on ne part
     // jamais sans le PDF a cause d'un envoi trop tot.
     for (let i = 0; i < 8 && !found; i++) {
       await new Promise(r => setTimeout(r, 800));
-      found = devisPdf.findLatestDevisPdf(data.patientsDir, data.logosNumero, data.devisId);
+      found = devisPdf.findLatestDevisPdf(data.patientsDir, data.logosNumero, data.devisId, true, sinceMs);
       if (found) log('[DEVIS] PDF disponible apres attente (~' + ((i + 1) * 800) + 'ms)');
     }
     if (found) {
@@ -1128,7 +1131,12 @@ async function sendDevisToPatient(data) {
         const ref = String(json.devisId || data.devisId || Date.now())
           .replace(/[^a-zA-Z0-9._-]/g, '_')
           .slice(0, 40);
-        const label = 'Devis pour un montant de ' + total.toFixed(2) + ' EUR envoye pour signature';
+        // Montant de la ligne Logos = celui du devis REELLEMENT envoye (PDF parse
+        // cote serveur), et non le total lu en memoire (RAM) qui pouvait diverger.
+        const deliveredTotal = (parsed && typeof parsed.totalMontant === 'number')
+          ? parsed.totalMontant
+          : (devisData.actes || []).reduce((s, a) => s + (Number(a.montant) || 0), 0);
+        const label = 'Devis pour un montant de ' + deliveredTotal.toFixed(2) + ' EUR envoye pour signature';
         // Auteur = code praticien lu dans Logos (data.praticien, ex. "OS"),
         // dynamique pour le multi-praticien ; si absent, null -> writeSignedDoc
         // prend le code praticien de LOGOS_w.INI (portable) au lieu de 'OS' en dur.
@@ -1538,18 +1546,19 @@ async function readAndOpenMdd(docName, intent) {
           // IMPORTANT : on masque l'overlay pendant l'impression, sinon il est
           // pose PAR-DESSUS l'icone imprimante et intercepte le clic simule.
           const overlayMod = require('./overlay-pec');
+          let _devisPrinted = null; // resultat impression (sinceMs = instant du clic) -> anti-devis-perime
           try {
             overlayMod.setSuspended(true);
             await new Promise(r => setTimeout(r, 250)); // laisse l'overlay disparaitre du hit-test
             const printer = require('./logos-print-devis');
             printer.setLogger(log);
-            await printer.printAndWaitPdf(data.patientsDir, data.logosNumero);
+            _devisPrinted = await printer.printAndWaitPdf(data.patientsDir, data.logosNumero);
           } catch (ePrint) {
             log('[DEVIS] Impression auto du devis echouee (non bloquant): ' + ePrint.message);
           } finally {
             try { overlayMod.setSuspended(false); } catch (e) {}
           }
-          try { await sendDevisToPatient(data); }
+          try { await sendDevisToPatient(data, { sinceMs: _devisPrinted ? _devisPrinted.sinceMs : null }); }
           catch (eDevis) { log('[DEVIS] Erreur envoi devis: ' + eDevis.message); }
           // Ré-affiche l'overlay épinglé pour que la confirmation « ✓ Envoyé »
           // (côté renderer, au retour de ce clic) soit bien visible après
