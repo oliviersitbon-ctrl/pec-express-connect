@@ -177,6 +177,8 @@ async function claimFse(fseKey) {
 }
 
 async function processFile(fp, name, tries = 0) {
+  // Garde-fou d'appairage : poste en attente/refusé -> aucun déclenchement Trust.
+  try { if (require('./poste-gate').isBlocked()) return; } catch (e) {}
   if (!(await isStable(fp))) {
     if (tries < 6) { setTimeout(() => processFile(fp, name, tries + 1), 1500); }
     else log(`${name} : fichier jamais stabilisé -> abandon`);

@@ -164,6 +164,8 @@ async function tick() {
   try {
     const { site, apiKey } = siteAndKey();
     if (!apiKey) { return; } // poste pas encore appairé
+    // Garde-fou d'appairage : poste en attente/refusé -> aucune écriture Logos.
+    try { if (require('./poste-gate').isBlocked()) return; } catch (e) {}
 
     const res = await fetch(`${site}/api/desktop/pec-line-pending`, {
       headers: { 'x-api-key': apiKey },

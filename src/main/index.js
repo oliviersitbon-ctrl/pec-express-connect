@@ -749,7 +749,8 @@ async function refreshModules() {
     const cfg = cm.getConfig() || {};
     const apiKey = cfg.apiKey || '';
     if (!apiKey) return; // poste pas encore appaire
-    const site = (cfg.urls && cfg.urls.site) || CONFIG.siteUrl;
+    // /api/desktop/* n'existe que sur le host MDD (pas sur la façade Labora).
+    const site = CONFIG.siteUrl;
     const fetch = require('node-fetch');
     const res = await fetch(site + '/api/desktop/whoami', { headers: { 'x-api-key': apiKey } });
     const json = await res.json().catch(() => ({}));
@@ -775,7 +776,10 @@ async function registerPoste() {
     const cfg = cm.getConfig() || {};
     const apiKey = cfg.apiKey || '';
     if (!apiKey) return; // pas encore appairé
-    const site = (cfg.urls && cfg.urls.site) || CONFIG.siteUrl;
+    // Les routes /api/desktop/* vivent sur le host MDD, même pour un cabinet
+    // Labora (la façade laboradental.fr ne les sert pas) -> on force le host MDD,
+    // comme les watchers questionnaire/FSE. (cfg.urls.site = Labora => 405.)
+    const site = CONFIG.siteUrl;
 
     const ini = require('./logos-ini').readIni(cfg.logosIniPath);
     const patientsDir = ini.patientsDir || cfg.logosPatientsDir || null;
@@ -801,8 +805,13 @@ async function registerPoste() {
       body: JSON.stringify(payload),
     });
     const j = await res.json().catch(() => ({}));
-    if (res.ok && j && j.ok) log('[POSTE] enregistré (statut ' + (j.status || '?') + ', store ' + String(storeId || '—').slice(0, 8) + ')');
-    else log('[POSTE] enregistrement HTTP ' + res.status);
+    if (res.ok && j && j.ok) {
+      // Verrou d'activité : le poste ne travaille que si le serveur l'a approuvé.
+      try { const gate = require('./poste-gate'); gate.setLogger(log); gate.setStatus(j.status); } catch (e) {}
+      log('[POSTE] enregistré (statut ' + (j.status || '?') + ', store ' + String(storeId || '—').slice(0, 8) + ')');
+    } else {
+      log('[POSTE] enregistrement HTTP ' + res.status);
+    }
   } catch (e) {
     log('[POSTE] enregistrement échec (non bloquant): ' + e.message);
   }
@@ -906,6 +915,17 @@ async function sendDevisToPatient(data) {
     // pour que l'utilisateur colle sa clé sur-le-champ (onboarding fluide).
     log('[DEVIS] Poste non appairé -> ouverture de la fenêtre de connexion');
     try { openConnectWindow(); } catch (e) { log('[DEVIS] ouverture fenêtre connexion KO: ' + e.message); }
+    return false;
+  }
+
+  // Garde-fou : poste en attente/refusé -> en veille, aucun envoi.
+  if (require('./poste-gate').isBlocked()) {
+    log('[DEVIS] Poste en attente de validation -> envoi bloqué');
+    require('./block-popup').show({
+      tone: 'info',
+      heading: "Poste en attente de validation",
+      message: "Ce poste doit être approuvé par votre administrateur dans Mon Devis Dentaire (superadmin › Postes Logos) avant de pouvoir envoyer. Contactez votre administrateur.",
+    });
     return false;
   }
 
@@ -1515,6 +1535,19 @@ async function readAndOpenMdd(docName, intent) {
             resolve(false);
             return;
           }
+        }
+
+        // Garde-fou : poste en attente/refusé -> en veille, PEC non lancée.
+        if (require('./poste-gate').isBlocked()) {
+          log('[PEC] Poste en attente de validation -> PEC bloquée');
+          try { hideLoader(); } catch (e) {}
+          require('./block-popup').show({
+            tone: 'info',
+            heading: "Poste en attente de validation",
+            message: "Ce poste doit être approuvé par votre administrateur dans Mon Devis Dentaire (superadmin › Postes Logos) avant de pouvoir lancer une prise en charge. Contactez votre administrateur.",
+          });
+          resolve(false);
+          return;
         }
 
         // ── Contrôle compte praticien (SUR LOGOS, AVANT d'ouvrir Chrome) ─────
@@ -3296,6 +3329,16 @@ if (!gotTheLock) {
             log('[QUESTIONNAIRE] Poste non appairé -> ouverture de la fenêtre de connexion');
             try { openConnectWindow(); } catch (e) {}
             return { ok: false, error: 'not-paired' };
+          }
+          // Garde-fou : poste en attente/refusé -> en veille, pas d'envoi tablette.
+          if (require('./poste-gate').isBlocked()) {
+            log('[QUESTIONNAIRE] Poste en attente de validation -> envoi bloqué');
+            require('./block-popup').show({
+              tone: 'info',
+              heading: "Poste en attente de validation",
+              message: "Ce poste doit être approuvé par votre administrateur (superadmin › Postes Logos) avant d'envoyer un questionnaire. Contactez votre administrateur.",
+            });
+            return { ok: false, error: 'pending-approval' };
           }
           const site = CONFIG.siteUrl; // routes /api/questionnaire/* sur le host MDD
           const patientsDir = c.logosPatientsDir || null;
