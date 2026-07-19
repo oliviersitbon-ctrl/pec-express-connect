@@ -61,11 +61,7 @@
         }
       ],
       "icon": "assets/icon.ico",
-      "azureSignOptions": {
-        "endpoint": "https://neu.codesigning.azure.net/",
-        "codeSigningAccountName": "labora-signing",
-        "certificateProfileName": "labora-public"
-      }
+      "sign": "build/sign.js"
     },
     "nsis": {
       "oneClick": true,
