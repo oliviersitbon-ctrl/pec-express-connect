@@ -213,6 +213,67 @@ function registerIpc() {
     if (tab === 'dll' || tab === 'all')     out.push(...readTail(dllLog, 'DLL'));
     return out.slice(-500);
   });
+
+  // Envoi TEMPORAIRE des logs au serveur (diagnostic à distance). Collecte un
+  // tail plus large des trois journaux et POST vers /api/desktop/connector-logs.
+  // Auth : x-api-key (clé du cabinet, comme les autres routes desktop). Le host
+  // est forcé sur MDD car la façade laboradental.fr ne sert pas /api/desktop.
+  ipcMain.handle('lc-upload-logs', async () => {
+    try {
+      const userLogs = path.join(os.homedir(), 'PecExpress', 'logs', 'app.log');
+      const serviceLog = 'C:\\ProgramData\\PecExpress\\service.log';
+      const dllLog = path.join(os.homedir(), 'PecExpress', 'logs', 'dll-bridge.log');
+
+      function readTailBig(file, label) {
+        if (!fs.existsSync(file)) return [`[${label}] (fichier absent: ${file})`];
+        try {
+          const content = fs.readFileSync(file, 'utf8');
+          return content.split('\n').filter(l => l.trim()).slice(-1000).map(l => `[${label}] ${l}`);
+        } catch (e) { return [`[${label}] (lecture impossible: ${e.message})`]; }
+      }
+
+      const lines = [];
+      lines.push(...readTailBig(serviceLog, 'SVC'));
+      lines.push(...readTailBig(userLogs, 'APP'));
+      lines.push(...readTailBig(dllLog, 'DLL'));
+      const contentBody = lines.join('\n');
+
+      let cfg = {};
+      try { cfg = require('./config-manager').getConfig() || {}; } catch (e) {}
+      const apiKey = cfg.apiKey || '';
+      if (!apiKey) {
+        return { ok: false, error: 'Poste non appairé (aucune clé API). Reconnecte le poste puis réessaie.' };
+      }
+
+      let version = '';
+      try { version = app.getVersion(); } catch (e) {}
+
+      const payload = {
+        idPoste: cfg.idPoste || null,
+        hostname: os.hostname(),
+        version,
+        content: contentBody,
+      };
+
+      const MDD_HOST = 'https://app.mondevisdentaire.com';
+      const fetch = require('node-fetch');
+      const res = await fetch(MDD_HOST + '/api/desktop/connector-logs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+        body: JSON.stringify(payload),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (res.ok && j && j.ok) {
+        log(`Logs envoyés au serveur (${j.bytes || contentBody.length} octets, id ${String(j.id || '').slice(0, 8)})`);
+        return { ok: true, bytes: j.bytes || contentBody.length, id: j.id || null };
+      }
+      log('Envoi des logs: HTTP ' + res.status + ' ' + (j && j.error ? j.error : ''));
+      return { ok: false, error: (j && j.error) || ('HTTP ' + res.status) };
+    } catch (e) {
+      log('Envoi des logs échec: ' + e.message);
+      return { ok: false, error: e.message };
+    }
+  });
 }
 
 function init(opts) {

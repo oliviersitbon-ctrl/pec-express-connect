@@ -51,13 +51,22 @@ jobs:
           # L'outil "sign" exige un chemin ABSOLU pour -b (--base-directory).
           $b = (Resolve-Path "resources/native").Path
           $sign = Join-Path $env:USERPROFILE ".dotnet\tools\sign.exe"
+          # Fichiers natifs a signer : la DLL P/Invoke (anti G DATA) ET l'exe
+          # WinDev d'ecriture Logos (LogosDevisWriter.exe) s'il est present. On ne
+          # signe que ceux qui existent pour ne pas casser le build.
+          $targets = @()
+          foreach ($f in @('MddNative.dll','LogosDevisWriter.exe')) {
+            if (Test-Path (Join-Path $b $f)) { $targets += $f }
+          }
+          if ($targets.Count -eq 0) { throw "Aucun fichier natif a signer dans resources/native" }
+          Write-Host "Signature Azure des fichiers natifs: $($targets -join ', ')"
           & $sign code trusted-signing `
-            -b $b MddNative.dll `
+            -b $b @targets `
             -tse https://neu.codesigning.azure.net/ `
             -tsa labora-signing `
             -tscp labora-public `
             -v Information
-          if ($LASTEXITCODE -ne 0) { throw "Signature de MddNative.dll a echoue" }
+          if ($LASTEXITCODE -ne 0) { throw "Signature des fichiers natifs a echoue" }
 
       - name: Build & publish installer
         env:

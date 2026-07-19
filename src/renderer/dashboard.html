@@ -65,6 +65,7 @@
     <div class="modal-box">
       <div class="modal-header">
         <h2>Logs Mon devis dentaire Connecté</h2>
+        <button class="secondary" id="logs-upload" style="margin-left:auto; margin-right:8px">Envoyer les logs au serveur</button>
         <button class="close-btn" id="logs-close">×</button>
       </div>
       <div id="logs-tabs">
@@ -114,6 +115,21 @@ document.getElementById('btn-uninstall').addEventListener('click', async () => {
     btn.textContent = 'Désinstaller complètement';
     toast('Échec: ' + res.error);
   }
+});
+
+document.getElementById('logs-upload').addEventListener('click', async () => {
+  const btn = document.getElementById('logs-upload');
+  const old = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Envoi…';
+  try {
+    const res = await api.uploadLogs();
+    if (res && res.ok) {
+      toast('Logs envoyés au serveur ✓ — préviens-moi dans le chat');
+    } else {
+      toast('Échec de l\'envoi : ' + ((res && res.error) || 'inconnu'));
+    }
+  } catch (e) { toast('Erreur: ' + (e && e.message ? e.message : e)); }
+  finally { btn.disabled = false; btn.textContent = old; }
 });
 
 let currentTab = 'all';

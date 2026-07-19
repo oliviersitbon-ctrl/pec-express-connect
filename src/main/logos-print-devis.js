@@ -60,9 +60,13 @@ $proc = Get-Process -Name "LOGOS_w" -ErrorAction SilentlyContinue
 if (-not $proc) { Write-Output '{"ok":false,"reason":"logos-not-running"}'; exit 0 }
 $logosPid = $proc.Id
 
-$fg = [PD]::GetForegroundWindow(); $fgPid = 0
-[PD]::GetWindowThreadProcessId($fg, [ref]$fgPid) | Out-Null
-if ($fgPid -ne $logosPid) { Write-Output '{"ok":false,"reason":"logos-not-foreground"}'; exit 0 }
+# NB: le clic sur "Imprimer" se fait par PostMessage DIRECTEMENT sur le handle du
+# bouton (clic invisible, voir plus bas) -> Logos n'a PAS besoin d'etre au premier
+# plan. On NE bloque donc PLUS ici sur "logos-not-foreground" : cliquer le bouton
+# overlay (fenetre Electron) fait perdre le focus a Logos une fraction de seconde,
+# ce qui faisait echouer l'impression pour rien (aucun PDF genere -> devis non
+# analysable). La fenetre devis est de toute facon validee par ses boutons
+# marqueurs (Imprimer/Eclater/Devis types...) juste apres.
 
 # Fenetres top-level Logos visibles
 $wins = New-Object System.Collections.ArrayList

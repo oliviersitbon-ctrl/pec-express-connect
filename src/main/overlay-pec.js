@@ -428,6 +428,29 @@ function stopCursorPoll() {
   _capturing = false;
 }
 
+// Re-detection PERIODIQUE de la page Devis. Le hook foreground (startWatcher) ne
+// se declenche QUE lors d'un changement de fenetre top-level. Or, quand on
+// navigue DANS Logos (page Devis -> Plans de traitement / Etat civil…), la
+// meme fenetre reste au premier plan : aucun evenement foreground, donc l'ancien
+// overlay restait affiche HORS de la page Devis jusqu'au prochain changement
+// d'appli (regression signalee par Fiona : « les boutons persistent un peu meme
+// hors page devis »). Ce poll leger relance detectDevisPage toutes les ~2 s :
+// des qu'on quitte la page Devis, refreshDevisDetection -> hideOverlay. Les
+// gardes _detectionInflight / _detectorBusy evitent tout chevauchement de spawn.
+let _detectPollTimer = null;
+const DETECT_POLL_MS = 2000;
+function startDetectPoll() {
+  if (_detectPollTimer) return;
+  _detectPollTimer = setInterval(() => {
+    if (_suspended) return;            // impression auto en cours -> deja gere
+    if (_detectionInflight) return;    // une detection tourne deja
+    refreshDevisDetection();
+  }, DETECT_POLL_MS);
+}
+function stopDetectPoll() {
+  if (_detectPollTimer) { clearInterval(_detectPollTimer); _detectPollTimer = null; }
+}
+
 /**
  * Handler IPC: appele quand l'utilisateur clique sur "Lancer la PEC"
  */
@@ -518,6 +541,7 @@ function startOverlay(onLancerPec) {
   setupIpcHandlers();
   startWatcher();
   startCursorPoll();
+  startDetectPoll();
 }
 
 /**
@@ -526,6 +550,7 @@ function startOverlay(onLancerPec) {
 function stopOverlay() {
   stopWatcher();
   stopCursorPoll();
+  stopDetectPoll();
   if (_overlayWin && !_overlayWin.isDestroyed()) {
     _overlayWin.destroy();
     _overlayWin = null;
