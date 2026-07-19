@@ -61,7 +61,7 @@
         }
       ],
       "icon": "assets/icon.ico",
-      "sign": "build/sign.js"
+      "sign": "sign.js"
     },
     "nsis": {
       "oneClick": true,
