@@ -924,7 +924,8 @@ async function sendDevisToPatient(data) {
     require('./block-popup').show({
       tone: 'info',
       heading: "Poste en attente de validation",
-      message: "Ce poste doit être approuvé par votre administrateur dans Mon Devis Dentaire (superadmin › Postes Logos) avant de pouvoir envoyer. Contactez votre administrateur.",
+      message: "Ce poste doit être approuvé par votre administrateur dans Mon Devis Dentaire (superadmin › Postes Logos) avant de pouvoir envoyer.",
+      phone: supportPhone(),
     });
     return false;
   }
@@ -1544,7 +1545,8 @@ async function readAndOpenMdd(docName, intent) {
           require('./block-popup').show({
             tone: 'info',
             heading: "Poste en attente de validation",
-            message: "Ce poste doit être approuvé par votre administrateur dans Mon Devis Dentaire (superadmin › Postes Logos) avant de pouvoir lancer une prise en charge. Contactez votre administrateur.",
+            message: "Ce poste doit être approuvé par votre administrateur dans Mon Devis Dentaire (superadmin › Postes Logos) avant de pouvoir lancer une prise en charge.",
+            phone: supportPhone(),
           });
           resolve(false);
           return;
@@ -3336,7 +3338,8 @@ if (!gotTheLock) {
             require('./block-popup').show({
               tone: 'info',
               heading: "Poste en attente de validation",
-              message: "Ce poste doit être approuvé par votre administrateur (superadmin › Postes Logos) avant d'envoyer un questionnaire. Contactez votre administrateur.",
+              message: "Ce poste doit être approuvé par votre administrateur (superadmin › Postes Logos) avant d'envoyer un questionnaire.",
+              phone: supportPhone(),
             });
             return { ok: false, error: 'pending-approval' };
           }
