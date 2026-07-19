@@ -192,13 +192,21 @@ async function isStable(file) {
 /**
  * Imprime/enregistre le devis courant (Shift+clic Imprimer) puis attend qu'un
  * Devis-*.pdf frais apparaisse dans LIENS\<numero> ET soit entierement ecrit.
- * @returns {Promise<boolean>} true si un PDF frais et stable est apparu.
+ *
+ * @returns {Promise<{ok:boolean, sinceMs:number, file:string|null, full:string|null, mtimeMs:number|null}>}
+ *   - sinceMs : horodatage PRIS AVANT le clic. Tout PDF dont la date (mtime) est
+ *     >= sinceMs a ete genere par CE clic. Sert de seuil anti-devis-perime cote
+ *     appelant (on n'attache jamais un ancien devis).
+ *   - file/full/mtimeMs : le PDF frais detecte (si ok).
  */
 async function printAndWaitPdf(patientsDir, numero, opts = {}) {
   const timeoutMs = opts.timeoutMs || 25000; // Logos peut mettre plusieurs secondes a spooler+ecrire
+  // Seuil "posterieur au clic" : capture AVANT toute action. Un PDF plus ancien
+  // que cet instant est forcement un devis precedent -> a ne jamais attacher.
+  const sinceMs = Date.now();
   if (!patientsDir || numero == null || numero === '') {
     log('[PRINT-DEVIS] Contexte incomplet (patientsDir/numero) - skip impression auto');
-    return false;
+    return { ok: false, sinceMs, file: null, full: null, mtimeMs: null };
   }
   const dir = path.join(patientsDir, 'LIENS', String(numero));
   const before = snapshotPdfs(dir);
@@ -206,7 +214,7 @@ async function printAndWaitPdf(patientsDir, numero, opts = {}) {
   const r = await shiftClickImprimer();
   if (!r.ok) {
     log('[PRINT-DEVIS] Shift+clic Imprimer non effectue: ' + (r.reason || '?') + (r.err ? ' (' + r.err + ')' : ''));
-    return false;
+    return { ok: false, sinceMs, file: null, full: null, mtimeMs: null };
   }
   log('[PRINT-DEVIS] Shift+clic Imprimer effectue (' + r.x + ',' + r.y + ') - attente du PDF...');
 
@@ -217,17 +225,18 @@ async function printAndWaitPdf(patientsDir, numero, opts = {}) {
     for (const [f, m] of now) {
       const prev = before.get(f);
       if (prev == null || m > prev) { // nouveau fichier OU re-enregistre plus recent
+        const full = path.join(dir, f);
         // On attend que le fichier soit ENTIEREMENT ecrit avant de valider.
-        if (await isStable(path.join(dir, f))) {
+        if (await isStable(full)) {
           log('[PRINT-DEVIS] PDF frais detecte et stable: ' + f);
-          return true;
+          return { ok: true, sinceMs, file: f, full, mtimeMs: m };
         }
         log('[PRINT-DEVIS] PDF ' + f + ' encore en cours d\'ecriture, on patiente...');
       }
     }
   }
   log('[PRINT-DEVIS] Aucun PDF frais/stable apres ' + timeoutMs + 'ms (dialogue Logos ?) - on continue');
-  return false;
+  return { ok: false, sinceMs, file: null, full: null, mtimeMs: null };
 }
 
 module.exports = { setLogger, printAndWaitPdf, shiftClickImprimer };

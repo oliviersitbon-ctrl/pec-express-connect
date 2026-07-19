@@ -1572,12 +1572,13 @@ async function readAndOpenMdd(docName, intent) {
           const site = CONFIG.siteUrl;
           const overlayMod = require('./overlay-pec');
           let pecPdfB64 = null, pecPdfName = null;
+          let printed = null;
           try {
             overlayMod.setSuspended(true);
             await new Promise(r => setTimeout(r, 250)); // laisse l'overlay quitter le hit-test
             const printer = require('./logos-print-devis');
             printer.setLogger(log);
-            await printer.printAndWaitPdf(data.patientsDir, data.logosNumero);
+            printed = await printer.printAndWaitPdf(data.patientsDir, data.logosNumero);
           } catch (ePrint) {
             log('[PEC] Impression auto du devis échouée (non bloquant): ' + ePrint.message);
           } finally {
@@ -1588,10 +1589,13 @@ async function readAndOpenMdd(docName, intent) {
             devisPdf.setLogger(log);
             // preferFreshest=true : on vient d'imprimer le devis ACTIF. Le devisId
             // lu en mémoire peut pointer sur l'ANCIEN devis → on prend le plus récent.
-            let found = devisPdf.findLatestDevisPdf(data.patientsDir, data.logosNumero, data.devisId, true);
+            // sinceMs = instant du clic : on n'accepte QUE le PDF genere par cette
+            // impression (posterieur au clic), jamais un ancien devis perime.
+            const sinceMs = printed ? printed.sinceMs : null;
+            let found = devisPdf.findLatestDevisPdf(data.patientsDir, data.logosNumero, data.devisId, true, sinceMs);
             for (let i = 0; i < 8 && !found; i++) {
               await new Promise(r => setTimeout(r, 800));
-              found = devisPdf.findLatestDevisPdf(data.patientsDir, data.logosNumero, data.devisId, true);
+              found = devisPdf.findLatestDevisPdf(data.patientsDir, data.logosNumero, data.devisId, true, sinceMs);
             }
             if (found) { pecPdfB64 = found.base64; pecPdfName = found.fileName; }
           } catch (ePdf) {

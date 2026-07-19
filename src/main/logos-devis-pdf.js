@@ -25,9 +25,13 @@ function setLogger(fn) { if (typeof fn === 'function') log = fn; }
  *   vient d'imprimer le devis actif (flow PEC) : le devisId lu en mémoire
  *   ("Devis selectionne") peut pointer sur l'ANCIEN devis, alors que le fichier
  *   qu'on vient d'imprimer est forcément le plus récent.
+ * @param {number} [sinceMs] - seuil "posterieur au clic". Si fourni, on n'accepte
+ *   QUE les PDF dont la date (mtime) est >= sinceMs : le PDF choisi doit avoir
+ *   ete cree APRES le clic d'envoi. Evite d'attacher l'ancien devis (perime)
+ *   quand la nouvelle impression n'a pas (encore) produit de PDF.
  * @returns {null | { path: string, fileName: string, base64: string, sizeKb: number }}
  */
-function findLatestDevisPdf(patientsDir, patientId, devisId, preferFreshest) {
+function findLatestDevisPdf(patientsDir, patientId, devisId, preferFreshest, sinceMs) {
   // En mode preferFreshest, le devisId n'est pas requis (on ne s'en sert pas).
   if (!patientsDir || patientId == null || patientId === '' ||
       (!preferFreshest && (devisId == null || devisId === ''))) {
@@ -75,18 +79,28 @@ function findLatestDevisPdf(patientsDir, patientId, devisId, preferFreshest) {
   }
 
   // Le plus recent par date de modification (le -2 peut etre plus recent).
+  // Regle anti-devis-perime : si sinceMs est fourni, on IGNORE tout PDF plus
+  // ancien que le clic (mtime < sinceMs). Le PDF retenu doit avoir ete genere
+  // par l'impression courante, jamais un devis precedent.
   let best = null;
+  let rejetesAnciens = 0;
   for (const f of matches) {
     const full = path.join(dir, f);
     let st;
     try { st = fs.statSync(full); } catch (e) { continue; }
     if (!st.isFile() || st.size === 0) continue;
+    if (sinceMs && st.mtimeMs < sinceMs) { rejetesAnciens++; continue; }
     if (!best || st.mtimeMs > best.mtimeMs) {
       best = { file: f, full, mtimeMs: st.mtimeMs, size: st.size };
     }
   }
   if (!best) {
-    log('[DEVIS-PDF] Candidats trouves mais aucun fichier lisible/non-vide');
+    if (sinceMs && rejetesAnciens > 0) {
+      log('[DEVIS-PDF] Aucun PDF posterieur au clic (' + rejetesAnciens +
+          ' PDF plus ancien(s) ignore(s)) - pas d\'attache perimee');
+    } else {
+      log('[DEVIS-PDF] Candidats trouves mais aucun fichier lisible/non-vide');
+    }
     return null;
   }
 
