@@ -3312,6 +3312,18 @@ if (!gotTheLock) {
         refreshModules();
         registerPoste();
         setInterval(() => { refreshModules(); registerPoste(); }, 15 * 60 * 1000);
+        // Onboarding : si le poste n'est PAS encore appairé (aucune clé en
+        // config), on ouvre AUTOMATIQUEMENT la connexion MDD au démarrage — donc
+        // juste après l'installation, l'utilisateur est invité à se connecter à
+        // MDD sans avoir à cliquer d'abord sur Devis/PEC/Questionnaire. Une fois
+        // appairé, plus rien ne s'ouvre. Petit délai pour laisser le tray se poser.
+        try {
+          const cmBoot = require('./config-manager');
+          if (!((cmBoot.getConfig() || {}).apiKey || '')) {
+            log('[STARTUP] Poste non appairé -> ouverture auto de la connexion MDD');
+            setTimeout(() => { try { openPairingFlow(); } catch (e) { log('[STARTUP] openPairingFlow KO: ' + e.message); } }, 4000);
+          }
+        } catch (e) {}
       }).catch(err => {
         log('Erreur chargement config: ' + err.message);
       });
