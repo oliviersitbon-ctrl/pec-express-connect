@@ -23,6 +23,11 @@ param(
 
 $ErrorActionPreference = "Continue"
 
+$__mddDll = if ($PSScriptRoot) { Join-Path $PSScriptRoot '..\native\MddNative.dll' } else { $null }
+if ($__mddDll -and (Test-Path -LiteralPath $__mddDll) -and -not ('LEM' -as [type])) {
+  try { Add-Type -Path $__mddDll -ErrorAction Stop } catch { }
+}
+if (-not ('LEM' -as [type])) {
 Add-Type @"
 using System;
 using System.Collections.Generic;
@@ -104,6 +109,7 @@ public class LEM {
     }
 }
 "@ -ErrorAction SilentlyContinue
+}
 
 $proc = Get-Process -Name "LOGOS_w" -ErrorAction SilentlyContinue
 if (-not $proc) { Write-Error "Logos (LOGOS_w) non lance"; exit 1 }

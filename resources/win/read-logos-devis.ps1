@@ -14,6 +14,11 @@ param(
 
 if (-not $OutputFile) { Write-Error "OutputFile required"; exit 1 }
 
+$__mddDll = if ($PSScriptRoot) { Join-Path $PSScriptRoot '..\native\MddNative.dll' } else { $null }
+if ($__mddDll -and (Test-Path -LiteralPath $__mddDll) -and -not ('LMR' -as [type])) {
+  try { Add-Type -Path $__mddDll -ErrorAction Stop } catch { }
+}
+if (-not ('LMR' -as [type])) {
 Add-Type @"
 using System;
 using System.Collections.Generic;
@@ -120,6 +125,7 @@ public class LMR {
     }
 }
 "@ -ErrorAction SilentlyContinue
+}
 
 $proc = Get-Process -Name "LOGOS_w" -ErrorAction SilentlyContinue
 if (-not $proc) { Write-Error "Logos not running"; exit 1 }

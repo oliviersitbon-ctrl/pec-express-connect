@@ -10,6 +10,11 @@
 
 $OUT = "C:\Users\Utilisateur\Desktop\pec-express-connect\_diag-fiche.txt"
 
+$__mddDll = if ($PSScriptRoot) { Join-Path $PSScriptRoot '..\native\MddNative.dll' } else { $null }
+if ($__mddDll -and (Test-Path -LiteralPath $__mddDll) -and -not ('DG2' -as [type])) {
+  try { Add-Type -Path $__mddDll -ErrorAction Stop } catch { }
+}
+if (-not ('DG2' -as [type])) {
 Add-Type @"
 using System;
 using System.Text;
@@ -28,6 +33,7 @@ public class DG2 {
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
 }
 "@
+}
 
 $lines = New-Object System.Collections.ArrayList
 function W($s) { [void]$script:lines.Add($s) }

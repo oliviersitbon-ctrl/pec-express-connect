@@ -23,6 +23,11 @@ param(
 
 $ErrorActionPreference = "Continue"
 
+$__mddDll = if ($PSScriptRoot) { Join-Path $PSScriptRoot '..\native\MddNative.dll' } else { $null }
+if ($__mddDll -and (Test-Path -LiteralPath $__mddDll) -and -not ('LPT' -as [type])) {
+  try { Add-Type -Path $__mddDll -ErrorAction Stop } catch { }
+}
+if (-not ('LPT' -as [type])) {
 Add-Type @"
 using System;
 using System.Collections.Generic;
@@ -102,6 +107,7 @@ public class LPT {
     }
 }
 "@ -ErrorAction SilentlyContinue
+}
 
 function Write-Result($obj) {
     $json = $obj | ConvertTo-Json -Compress

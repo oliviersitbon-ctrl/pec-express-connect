@@ -4,6 +4,11 @@
 
 $ErrorActionPreference = 'SilentlyContinue'
 
+$__mddDll = if ($PSScriptRoot) { Join-Path $PSScriptRoot '..\native\MddNative.dll' } else { $null }
+if ($__mddDll -and (Test-Path -LiteralPath $__mddDll) -and -not ('WFG' -as [type])) {
+  try { Add-Type -Path $__mddDll -ErrorAction Stop } catch { }
+}
+if (-not ('WFG' -as [type])) {
 Add-Type @'
 using System;
 using System.Runtime.InteropServices;
@@ -18,6 +23,7 @@ public class WFG {
     [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
 }
 '@
+}
 
 for ($i = 0; $i -lt 15; $i++) {
     Start-Sleep -Milliseconds 200

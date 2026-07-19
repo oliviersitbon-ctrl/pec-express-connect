@@ -19,9 +19,16 @@
 // SECOURS (dev sans DLL compilee) : il n'est utilise que si le type n'est pas
 // deja charge.
 //
+// SOURCES DES CLASSES
+//   Overlays (src/main/*.js, PS inline via -Command) :
+//     LD, PD, W32C, W32U, FD, FGH2, MDL, FGHook
+//   Scripts livres (resources/win/*.ps1, executes via -File) :
+//     LMR (read-logos-devis), LPT (read-logos-patient), LEM (read-logos-email),
+//     DG (diag-fiche), DG2 (diag-fiche-dump), WFG (foreground-chrome)
+//
 // REGLE : les classes ci-dessous doivent rester STRICTEMENT identiques (nom,
-// signatures, types imbriques) aux blocs inline des fichiers src/main/*.js.
-// Toute modification d'un bloc inline doit etre repercutee ici, et inversement.
+// signatures, types imbriques) aux blocs inline correspondants. Toute
+// modification d'un bloc inline doit etre repercutee ici, et inversement.
 //
 // Compile en .NET Framework 4.x (csc v4.0.30319) pour etre chargeable par
 // Windows PowerShell 5.1. Voir scripts/build-native.cjs.
@@ -47,7 +54,9 @@ public class LD {
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
 }
 
-// === logos-memory-reader.js (classe LMR) — lecture memoire devis =============
+// === read-logos-devis.ps1 (classe LMR) — lecture memoire du devis ============
+// NB : signature FindAndDump a 5 parametres (anchor + filterPattern), version
+// AUTORITATIVE = celle du script livre read-logos-devis.ps1 (reellement executee).
 public class LMR {
     [DllImport("kernel32.dll", SetLastError=true)]
     public static extern IntPtr OpenProcess(int a, bool i, int p);
@@ -62,7 +71,29 @@ public class LMR {
         public IntPtr RegionSize; public uint State; public uint Protect; public uint Type;
     }
 
-    public static byte[] FindAndDump(int pid, byte[] pattern, int beforeBytes, int afterBytes) {
+    static bool ContainsAt(byte[] buf, int offset, byte[] needle) {
+        if (offset + needle.Length > buf.Length) return false;
+        for (int j = 0; j < needle.Length; j++) {
+            if (buf[offset + j] != needle[j]) return false;
+        }
+        return true;
+    }
+
+    static int IndexOfBytes(byte[] buf, byte[] needle, int start, int end) {
+        byte n0 = needle[0];
+        int lim = end - needle.Length;
+        for (int i = start; i <= lim; i++) {
+            if (buf[i] != n0) continue;
+            bool m = true;
+            for (int j = 1; j < needle.Length; j++) {
+                if (buf[i+j] != needle[j]) { m = false; break; }
+            }
+            if (m) return i;
+        }
+        return -1;
+    }
+
+    public static byte[] FindAndDump(int pid, byte[] anchor, byte[] filterPattern, int beforeBytes, int afterBytes) {
         IntPtr h = OpenProcess(0x0010 | 0x0400, false, pid);
         if (h == IntPtr.Zero) return null;
 
@@ -70,10 +101,12 @@ public class LMR {
         long maxAddr = 4294967295L;
         int mbiSize = Marshal.SizeOf(typeof(MBI));
         MBI mbi;
-        byte p0 = pattern[0];
-        int patLen = pattern.Length;
+        byte a0 = anchor[0];
+        int anchorLen = anchor.Length;
         byte[] bestDump = null;
         int bestActes = -1;
+
+        byte[] needleActe = Encoding.GetEncoding("iso-8859-1").GetBytes("<Ligne");
 
         while (addr < maxAddr) {
             int qret = VirtualQueryEx(h, new IntPtr(addr), out mbi, mbiSize);
@@ -86,33 +119,30 @@ public class LMR {
                 byte[] buf = new byte[rs];
                 int br;
                 if (ReadProcessMemory(h, mbi.BaseAddress, buf, (int)rs, out br) && br > 0) {
-                    int limit = br - patLen;
+                    int limit = br - anchorLen;
                     for (int i = 0; i <= limit; i++) {
-                        if (buf[i] != p0) continue;
-                        bool m = true;
-                        for (int j = 1; j < patLen; j++) {
-                            if (buf[i+j] != pattern[j]) { m = false; break; }
+                        if (buf[i] != a0) continue;
+                        if (!ContainsAt(buf, i, anchor)) continue;
+                        int cs = Math.Max(0, i - beforeBytes);
+                        int ce = Math.Min(br, i + anchorLen + afterBytes);
+                        // Si filterPattern fourni, on doit le trouver dans la fenetre
+                        if (filterPattern != null && filterPattern.Length > 0) {
+                            if (IndexOfBytes(buf, filterPattern, cs, ce) < 0) continue;
                         }
-                        if (m) {
-                            int cs = Math.Max(0, i - beforeBytes);
-                            int ce = Math.Min(br, i + patLen + afterBytes);
+                        // Compter le nb d'actes pour selectionner le meilleur dump
+                        int countActes = 0;
+                        int search = cs;
+                        while (true) {
+                            int found = IndexOfBytes(buf, needleActe, search, ce);
+                            if (found < 0) break;
+                            countActes++;
+                            search = found + needleActe.Length;
+                        }
+                        if (countActes > bestActes) {
+                            bestActes = countActes;
                             byte[] dump = new byte[ce - cs];
                             Array.Copy(buf, cs, dump, 0, dump.Length);
-                            // Compter le nb de "<Ligne" dans ce dump pour selectionner
-                            // le meilleur (= celui avec le plus d'actes)
-                            int countActes = 0;
-                            byte[] needle = Encoding.GetEncoding("iso-8859-1").GetBytes("<Ligne");
-                            for (int k = 0; k <= dump.Length - needle.Length; k++) {
-                                bool nm = true;
-                                for (int l = 0; l < needle.Length; l++) {
-                                    if (dump[k+l] != needle[l]) { nm = false; break; }
-                                }
-                                if (nm) countActes++;
-                            }
-                            if (countActes > bestActes) {
-                                bestActes = countActes;
-                                bestDump = dump;
-                            }
+                            bestDump = dump;
                         }
                     }
                 }
@@ -227,4 +257,193 @@ public class FGHook {
     [StructLayout(LayoutKind.Sequential)] public struct MSG { public IntPtr hwnd; public uint message; public IntPtr wParam; public IntPtr lParam; public uint time; public int pt_x; public int pt_y; }
     public const uint EVENT_SYSTEM_FOREGROUND = 3;
     public const uint WINEVENT_OUTOFCONTEXT = 0;
+}
+
+// === read-logos-patient.ps1 (classe LPT) — lecture identite patient ==========
+public class LPT {
+    [DllImport("kernel32.dll", SetLastError=true)]
+    public static extern IntPtr OpenProcess(int a, bool i, int p);
+    [DllImport("kernel32.dll")] public static extern bool CloseHandle(IntPtr h);
+    [DllImport("kernel32.dll", SetLastError=true)]
+    public static extern int VirtualQueryEx(IntPtr h, IntPtr a, out MBI b, int s);
+    [DllImport("kernel32.dll", SetLastError=true)]
+    public static extern bool ReadProcessMemory(IntPtr h, IntPtr a, [Out] byte[] b, int s, out int r);
+
+    [StructLayout(LayoutKind.Sequential)] public struct MBI {
+        public IntPtr BaseAddress; public IntPtr AllocationBase; public uint AllocationProtect;
+        public IntPtr RegionSize; public uint State; public uint Protect; public uint Type;
+    }
+
+    static int IndexOf(byte[] buf, byte[] needle, int start, int end) {
+        if (needle.Length == 0) return -1;
+        byte n0 = needle[0];
+        int lim = Math.Min(end, buf.Length) - needle.Length;
+        for (int i = start; i <= lim; i++) {
+            if (buf[i] != n0) continue;
+            bool m = true;
+            for (int j = 1; j < needle.Length; j++) {
+                if (buf[i+j] != needle[j]) { m = false; break; }
+            }
+            if (m) return i;
+        }
+        return -1;
+    }
+
+    public static byte[] CollectAroundAnchors(int pid, byte[][] anchors, int window, int maxTotal) {
+        IntPtr h = OpenProcess(0x0010 | 0x0400, false, pid);
+        if (h == IntPtr.Zero) return null;
+        long addr = 0;
+        long maxAddr = 0x7FFFFFFFFFFF;
+        int mbiSize = Marshal.SizeOf(typeof(MBI));
+        MBI mbi;
+        List<byte> outBuf = new List<byte>();
+        while (addr < maxAddr && outBuf.Count < maxTotal) {
+            if (VirtualQueryEx(h, new IntPtr(addr), out mbi, mbiSize) == 0) break;
+            long rs = mbi.RegionSize.ToInt64();
+            long ba = mbi.BaseAddress.ToInt64();
+            uint pr = mbi.Protect;
+            bool readable = (mbi.State == 0x1000) &&
+                (pr == 0x04 || pr == 0x02 || pr == 0x20 || pr == 0x40);
+            if (readable && rs > 0 && rs < 200 * 1024 * 1024L) {
+                byte[] buf = new byte[rs];
+                int br;
+                if (ReadProcessMemory(h, mbi.BaseAddress, buf, (int)rs, out br) && br > 0) {
+                    foreach (byte[] anchor in anchors) {
+                        int from = 0;
+                        while (true) {
+                            int idx = IndexOf(buf, anchor, from, br);
+                            if (idx < 0) break;
+                            int cs = Math.Max(0, idx - window);
+                            int ce = Math.Min(br, idx + anchor.Length + window);
+                            for (int k = cs; k < ce; k++) outBuf.Add(buf[k]);
+                            outBuf.Add(0x0A);
+                            from = idx + anchor.Length;
+                            if (outBuf.Count >= maxTotal) break;
+                        }
+                        if (outBuf.Count >= maxTotal) break;
+                    }
+                }
+            }
+            long na = ba + rs;
+            if (na <= addr) break;
+            addr = na;
+        }
+        CloseHandle(h);
+        return outBuf.ToArray();
+    }
+}
+
+// === read-logos-email.ps1 (classe LEM) — lecture email patient ===============
+public class LEM {
+    [DllImport("kernel32.dll", SetLastError=true)]
+    public static extern IntPtr OpenProcess(int a, bool i, int p);
+    [DllImport("kernel32.dll")] public static extern bool CloseHandle(IntPtr h);
+    [DllImport("kernel32.dll", SetLastError=true)]
+    public static extern int VirtualQueryEx(IntPtr h, IntPtr a, out MBI b, int s);
+    [DllImport("kernel32.dll", SetLastError=true)]
+    public static extern bool ReadProcessMemory(IntPtr h, IntPtr a, [Out] byte[] b, int s, out int r);
+
+    [StructLayout(LayoutKind.Sequential)] public struct MBI {
+        public IntPtr BaseAddress; public IntPtr AllocationBase; public uint AllocationProtect;
+        public IntPtr RegionSize; public uint State; public uint Protect; public uint Type;
+    }
+
+    static int IndexOf(byte[] buf, byte[] needle, int start, int end) {
+        if (needle.Length == 0) return -1;
+        byte n0 = needle[0];
+        int lim = Math.Min(end, buf.Length) - needle.Length;
+        for (int i = start; i <= lim; i++) {
+            if (buf[i] != n0) continue;
+            bool m = true;
+            for (int j = 1; j < needle.Length; j++) {
+                if (buf[i+j] != needle[j]) { m = false; break; }
+            }
+            if (m) return i;
+        }
+        return -1;
+    }
+
+    public static byte[] CollectAroundAnchors(int pid, byte[][] anchors, int window, int maxTotal) {
+        IntPtr h = OpenProcess(0x0010 | 0x0400, false, pid);
+        if (h == IntPtr.Zero) return null;
+        long addr = 0;
+        long maxAddr = 0x7FFFFFFFFFFF;
+        int mbiSize = Marshal.SizeOf(typeof(MBI));
+        MBI mbi;
+        List<byte> outBuf = new List<byte>();
+        while (addr < maxAddr && outBuf.Count < maxTotal) {
+            if (VirtualQueryEx(h, new IntPtr(addr), out mbi, mbiSize) == 0) break;
+            long rs = mbi.RegionSize.ToInt64();
+            long ba = mbi.BaseAddress.ToInt64();
+            uint pr = mbi.Protect;
+            bool readable = (mbi.State == 0x1000) &&
+                (pr == 0x04 || pr == 0x02 || pr == 0x20 || pr == 0x40);
+            if (readable && rs > 0 && rs < 200 * 1024 * 1024L) {
+                byte[] buf = new byte[rs];
+                int br;
+                if (ReadProcessMemory(h, mbi.BaseAddress, buf, (int)rs, out br) && br > 0) {
+                    foreach (byte[] anchor in anchors) {
+                        int from = 0;
+                        while (true) {
+                            int idx = IndexOf(buf, anchor, from, br);
+                            if (idx < 0) break;
+                            int cs = Math.Max(0, idx - window);
+                            int ce = Math.Min(br, idx + anchor.Length + window);
+                            for (int k = cs; k < ce; k++) outBuf.Add(buf[k]);
+                            outBuf.Add(0x0A);
+                            from = idx + anchor.Length;
+                            if (outBuf.Count >= maxTotal) break;
+                        }
+                        if (outBuf.Count >= maxTotal) break;
+                    }
+                }
+            }
+            long na = ba + rs;
+            if (na <= addr) break;
+            addr = na;
+        }
+        CloseHandle(h);
+        return outBuf.ToArray();
+    }
+}
+
+// === diag-fiche.ps1 (classe DG) — diagnostic fenetres (outil) ================
+public class DG {
+  [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc cb, IntPtr l);
+  [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr p, EnumProc cb, IntPtr l);
+  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+  [DllImport("user32.dll", CharSet=CharSet.Auto)] public static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
+  [DllImport("user32.dll", CharSet=CharSet.Auto)] public static extern int GetClassName(IntPtr h, StringBuilder s, int n);
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint p);
+  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  public delegate bool EnumProc(IntPtr h, IntPtr l);
+  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
+}
+
+// === diag-fiche-dump.ps1 (classe DG2) — diagnostic fenetres (outil) ==========
+public class DG2 {
+  [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc cb, IntPtr l);
+  [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr p, EnumProc cb, IntPtr l);
+  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+  [DllImport("user32.dll", CharSet=CharSet.Auto)] public static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
+  [DllImport("user32.dll", CharSet=CharSet.Auto)] public static extern int GetClassName(IntPtr h, StringBuilder s, int n);
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint p);
+  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
+  [DllImport("user32.dll", CharSet=CharSet.Auto)] public static extern IntPtr SendMessage(IntPtr h, int msg, IntPtr w, StringBuilder l);
+  [DllImport("user32.dll")] public static extern int GetWindowTextLength(IntPtr h);
+  public delegate bool EnumProc(IntPtr h, IntPtr l);
+  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
+}
+
+// === foreground-chrome.ps1 (classe WFG) — mise au premier plan ===============
+public class WFG {
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int n);
+    [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr h);
+    [DllImport("user32.dll")] public static extern bool SwitchToThisWindow(IntPtr h, bool b);
+    [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint id1, uint id2, bool attach);
+    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+    [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
 }

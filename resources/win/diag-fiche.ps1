@@ -7,6 +7,11 @@
 #
 # Copie-colle TOUTE la sortie dans le chat.
 
+$__mddDll = if ($PSScriptRoot) { Join-Path $PSScriptRoot '..\native\MddNative.dll' } else { $null }
+if ($__mddDll -and (Test-Path -LiteralPath $__mddDll) -and -not ('DG' -as [type])) {
+  try { Add-Type -Path $__mddDll -ErrorAction Stop } catch { }
+}
+if (-not ('DG' -as [type])) {
 Add-Type @"
 using System;
 using System.Text;
@@ -24,6 +29,7 @@ public class DG {
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
 }
 "@
+}
 
 $proc = Get-Process -Name "LOGOS_w" -ErrorAction SilentlyContinue
 if (-not $proc) { Write-Output "LOGOS_w non lance"; exit 1 }
