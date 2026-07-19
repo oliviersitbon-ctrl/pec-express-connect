@@ -1,6 +1,6 @@
 {
   "name": "pec-express-connect",
-  "version": "1.0.48",
+  "version": "1.0.49",
   "description": "Mon devis dentaire Connecté - Pont entre Logos (logiciel dentaire) et PEC Express (mondevisdentaire). Imprimante virtuelle + bouton in-app Logos.",
   "main": "src/main/index.js",
   "author": "PEC Express",
@@ -60,7 +60,13 @@
           ]
         }
       ],
-      "icon": "assets/icon.ico"
+      "icon": "assets/icon.ico",
+      "azureSignOptions": {
+        "publisherName": "LABORA",
+        "endpoint": "https://neu.codesigning.azure.net/",
+        "codeSigningAccountName": "labora-signing",
+        "certificateProfileName": "labora-public"
+      }
     },
     "nsis": {
       "oneClick": true,
