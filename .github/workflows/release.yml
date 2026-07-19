@@ -48,9 +48,11 @@ jobs:
         run: |
           node scripts/build-native.cjs
           if ($LASTEXITCODE -ne 0) { throw "build-native.cjs a echoue" }
+          # L'outil "sign" exige un chemin ABSOLU pour -b (--base-directory).
+          $b = (Resolve-Path "resources/native").Path
           $sign = Join-Path $env:USERPROFILE ".dotnet\tools\sign.exe"
           & $sign code trusted-signing `
-            -b resources/native MddNative.dll `
+            -b $b MddNative.dll `
             -tse https://neu.codesigning.azure.net/ `
             -tsa labora-signing `
             -tscp labora-public `
