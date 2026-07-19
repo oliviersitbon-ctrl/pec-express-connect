@@ -18,6 +18,7 @@
  */
 
 const { BrowserWindow } = require('electron');
+const { psLoadNative } = require('./native-dll');
 const { spawn } = require('child_process');
 const path = require('path');
 const { setChildOf, unsetChild, setLogger: setW32Logger } = require('./win32-utils');
@@ -44,7 +45,8 @@ const POLL_MS = 1500;
 // en coordonnees ECRAN, le rectangle du bouton + l'origine CLIENT de la fenetre
 // devis (pour convertir en coords relatives au parent lors du SetParent).
 // { ok, parent, cox, coy, left, top, right, bottom }
-const PS_FIND = String.raw`
+const PS_FIND = String.raw`${psLoadNative('MDL')}
+if (-not ('MDL' -as [type])) {
 Add-Type @"
 using System;
 using System.Text;
@@ -65,6 +67,7 @@ public class MDL {
   [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
 }
 "@ -ErrorAction SilentlyContinue
+}
 
 $proc = Get-Process -Name "LOGOS_w" -ErrorAction SilentlyContinue
 if (-not $proc) { Write-Output '{"ok":false,"reason":"logos-not-running"}'; exit 0 }

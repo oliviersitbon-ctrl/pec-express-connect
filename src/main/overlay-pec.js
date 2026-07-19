@@ -11,6 +11,7 @@ const path = require('path');
 const { detectDevisPage, setLogger: setDetLogger } = require('./logos-detector');
 const { readCurrentDevis, setLogger: setMemLogger } = require('./logos-memory-reader');
 const { setChildOf, unsetChild, setLogger: setW32Logger } = require('./win32-utils');
+const { psLoadNative } = require('./native-dll');
 
 let _logger = null;
 function setLogger(fn) {
@@ -314,7 +315,8 @@ function startWatcher() {
   if (_watcherProc) return;
 
   const { spawn } = require('child_process');
-  const psScript = String.raw`
+  const psScript = String.raw`${psLoadNative('FGHook')}
+if (-not ('FGHook' -as [type])) {
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
@@ -331,6 +333,7 @@ public class FGHook {
     public const uint WINEVENT_OUTOFCONTEXT = 0;
 }
 "@ -ErrorAction SilentlyContinue
+}
 [Console]::Out.WriteLine("HOOK_READY")
 [Console]::Out.Flush()
 $cb = [FGHook+WinEventDelegate]{

@@ -17,6 +17,7 @@
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const { psLoadNative } = require('./native-dll');
 
 let log = () => {};
 function setLogger(fn) { if (typeof fn === 'function') log = fn; }
@@ -25,7 +26,8 @@ function setLogger(fn) { if (typeof fn === 'function') log = fn; }
 // bouton dont le texte contient "Imprimer", et fait un Shift+clic reel en son
 // centre (SHIFT enfonce via keybd_event, clic via mouse_event), puis restaure la
 // position du curseur. Sort un JSON { ok, x?, y?, reason? }.
-const PS_SHIFT_CLICK_IMPRIMER = String.raw`
+const PS_SHIFT_CLICK_IMPRIMER = String.raw`${psLoadNative('PD')}
+if (-not ('PD' -as [type])) {
 Add-Type @"
 using System;
 using System.Text;
@@ -52,6 +54,7 @@ public class PD {
   [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
 }
 "@ -ErrorAction SilentlyContinue
+}
 
 $proc = Get-Process -Name "LOGOS_w" -ErrorAction SilentlyContinue
 if (-not $proc) { Write-Output '{"ok":false,"reason":"logos-not-running"}'; exit 0 }

@@ -1,6 +1,6 @@
 {
   "name": "pec-express-connect",
-  "version": "1.0.49",
+  "version": "1.0.50",
   "description": "Mon devis dentaire Connecté - Pont entre Logos (logiciel dentaire) et PEC Express (mondevisdentaire). Imprimante virtuelle + bouton in-app Logos.",
   "main": "src/main/index.js",
   "author": "PEC Express",
@@ -8,7 +8,8 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win nsis --x64",
+    "build:native": "node scripts/build-native.cjs",
+    "dist": "node scripts/build-native.cjs && electron-builder --win nsis --x64",
     "pack": "electron-builder --dir"
   },
   "dependencies": {

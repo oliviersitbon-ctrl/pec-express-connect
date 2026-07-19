@@ -18,6 +18,7 @@
  */
 
 const { BrowserWindow, ipcMain, screen } = require('electron');
+const { psLoadNative } = require('./native-dll');
 const path = require('path');
 const { spawn } = require('child_process');
 
@@ -45,7 +46,8 @@ const POLL_MS = 1500;
 // -- Detection page Etat civil + bouton Aide --------------------------------
 // Renvoie JSON : { active, reason?, name?, numero?, dob?, focused?,
 //   aideLeft?, aideTop?, aideRight?, aideBottom? }
-const PS_DETECT = String.raw`
+const PS_DETECT = String.raw`${psLoadNative('FD')}
+if (-not ('FD' -as [type])) {
 Add-Type @"
 using System;
 using System.Text;
@@ -65,6 +67,7 @@ public class FD {
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
 }
 "@ -ErrorAction SilentlyContinue
+}
 
 $proc = Get-Process -Name "LOGOS_w" -ErrorAction SilentlyContinue
 if (-not $proc) { Write-Output '{"active":false,"reason":"logos-not-running"}'; exit 0 }
@@ -299,7 +302,8 @@ async function refresh() {
 
 function startWatcher() {
   if (_watcherProc) return;
-  const psScript = String.raw`
+  const psScript = String.raw`${psLoadNative('FGH2')}
+if (-not ('FGH2' -as [type])) {
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
@@ -310,6 +314,7 @@ public class FGH2 {
   [StructLayout(LayoutKind.Sequential)] public struct MSG { public IntPtr hwnd; public uint message; public IntPtr wParam; public IntPtr lParam; public uint time; public int x; public int y; }
 }
 "@ -ErrorAction SilentlyContinue
+}
 [Console]::Out.WriteLine("HOOK_READY"); [Console]::Out.Flush()
 $cb = [FGH2+D]{ param($a,$b,$c,$d,$e,$f,$g) [Console]::Out.WriteLine("FG"); [Console]::Out.Flush() }
 $hook = [FGH2]::SetWinEventHook(3,3,[IntPtr]::Zero,$cb,0,0,0)

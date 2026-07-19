@@ -18,6 +18,7 @@
 
 const { spawn } = require('child_process');
 const fs = require('fs');
+const { psLoadNative } = require('./native-dll');
 const os = require('os');
 const path = require('path');
 
@@ -172,7 +173,8 @@ async function readPatientIdentity(opts = {}) {
 // autour (8000 bytes avant + 16000 apres pour avoir le devis complet).
 const PS_READER_INLINE = String.raw`
 param([string]$OutputFile)
-
+${psLoadNative('LMR')}
+if (-not ('LMR' -as [type])) {
 Add-Type @"
 using System;
 using System.Collections.Generic;
@@ -258,6 +260,7 @@ public class LMR {
     }
 }
 "@ -ErrorAction SilentlyContinue
+}
 
 $proc = Get-Process -Name "LOGOS_w" -ErrorAction SilentlyContinue
 if (-not $proc) { Write-Error "Logos not running"; exit 1 }

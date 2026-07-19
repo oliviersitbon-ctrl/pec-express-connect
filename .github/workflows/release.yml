@@ -34,11 +34,34 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
+      # Precompile les types P/Invoke natifs en UNE DLL .NET Framework 4.x
+      # (resources/native/MddNative.dll), puis la signe LABORA. But : supprimer
+      # la compilation C# a l'execution (Add-Type @"..."@ => DLL temporaire a nom
+      # aleatoire dans %TEMP%, signalee "Gen:Variant.Adware" par G DATA). La DLL
+      # est chargee a l'execution via Add-Type -Path (voir src/main/native-dll.js).
+      - name: Precompile & sign native DLL (MddNative)
+        shell: pwsh
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        run: |
+          node scripts/build-native.cjs
+          if ($LASTEXITCODE -ne 0) { throw "build-native.cjs a echoue" }
+          $sign = Join-Path $env:USERPROFILE ".dotnet\tools\sign.exe"
+          & $sign code trusted-signing `
+            -b resources/native MddNative.dll `
+            -tse https://neu.codesigning.azure.net/ `
+            -tsa labora-signing `
+            -tscp labora-public `
+            -v Information
+          if ($LASTEXITCODE -ne 0) { throw "Signature de MddNative.dll a echoue" }
+
       - name: Build & publish installer
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Signature de code Azure Trusted Signing (LABORA) via l'outil "sign"
-          # (voir build/sign.js). L'outil lit ces 3 variables pour s'authentifier.
+          # (voir sign.js). L'outil lit ces 3 variables pour s'authentifier.
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}

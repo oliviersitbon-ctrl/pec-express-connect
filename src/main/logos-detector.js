@@ -18,6 +18,7 @@
  */
 
 const { spawn } = require('child_process');
+const { psLoadNative } = require('./native-dll');
 const path = require('path');
 
 let _logger = null;
@@ -33,7 +34,8 @@ function log(msg) {
 //    contient les marqueurs)
 // 3. Identifie sa fenetre A patient associee (1ere fenetre suivante avec titre matchant)
 // 4. Sort un JSON: { active: bool, devisId, patient, devisHwnd, patientHwnd }
-const PS_DETECTOR = String.raw`
+const PS_DETECTOR = String.raw`${psLoadNative('LD')}
+if (-not ('LD' -as [type])) {
 Add-Type @"
 using System;
 using System.Collections.Generic;
@@ -53,6 +55,7 @@ public class LD {
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
 }
 "@ -ErrorAction SilentlyContinue
+}
 
 $proc = Get-Process -Name "LOGOS_w" -ErrorAction SilentlyContinue
 if (-not $proc) {

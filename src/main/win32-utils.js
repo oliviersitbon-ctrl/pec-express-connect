@@ -11,6 +11,7 @@
  */
 
 const { spawn } = require('child_process');
+const { psLoadNative } = require('./native-dll');
 
 let _logger = null;
 function setLogger(fn) { _logger = fn; }
@@ -61,7 +62,8 @@ function runPowerShell(psScript, timeoutMs = 3000) {
 async function setChildOf(childHwnd, parentHwnd, x, y) {
   // SetParent + ajustement des styles (WS_CHILD)
   // On utilise SetWindowLong pour passer en WS_CHILD, puis SetParent
-  const ps = `
+  const ps = `${psLoadNative('W32C')}
+if (-not ('W32C' -as [type])) {
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
@@ -80,6 +82,7 @@ public class W32C {
     public const uint SWP_FRAMECHANGED = 0x0020;
 }
 "@ -ErrorAction SilentlyContinue
+}
 $child = [IntPtr]${childHwnd}
 $parent = [IntPtr]${parentHwnd}
 # Modifier le style: enlever WS_POPUP, ajouter WS_CHILD
@@ -110,7 +113,8 @@ Write-Output "OK"
  * Detache une fenetre (redevient top-level: parent = NULL/Zero)
  */
 async function unsetChild(childHwnd) {
-  const ps = `
+  const ps = `${psLoadNative('W32U')}
+if (-not ('W32U' -as [type])) {
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
@@ -123,6 +127,7 @@ public class W32U {
     public const int WS_POPUP = unchecked((int)0x80000000);
 }
 "@ -ErrorAction SilentlyContinue
+}
 $child = [IntPtr]${childHwnd}
 $style = [W32U]::GetWindowLong($child, [W32U]::GWL_STYLE)
 $newStyle = ($style -band (-bnot [W32U]::WS_CHILD)) -bor [W32U]::WS_POPUP
