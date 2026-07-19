@@ -56,29 +56,6 @@
     <span class="version" id="version">v—</span>
   </header>
 
-  <div class="card">
-    <h2>DLL Logos (bouton Mon devis dentaire)</h2>
-    <div class="status-row">
-      <span class="status-dot unknown" id="dll-dot"></span>
-      <div class="status-label">
-        <span id="dll-label">Vérification…</span>
-        <span class="sub" id="dll-sub"></span>
-      </div>
-      <button class="primary" id="btn-reinstall-dll" style="display:none">Réinstaller</button>
-    </div>
-  </div>
-
-  <div class="card">
-    <h2>Service Windows</h2>
-    <div class="status-row">
-      <span class="status-dot unknown" id="svc-dot"></span>
-      <div class="status-label">
-        <span id="svc-label">Vérification…</span>
-        <span class="sub" id="svc-sub"></span>
-      </div>
-    </div>
-  </div>
-
   <div class="actions">
     <button class="secondary" id="btn-logs">Voir les logs</button>
     <button class="danger" id="btn-uninstall" style="margin-left:auto">Désinstaller complètement</button>
@@ -108,39 +85,6 @@ const api = window.logosConnectApi;
 function applyStatus(status) {
   if (!status) return;
   document.getElementById('version').textContent = 'v' + status.version;
-
-  const dllDot = document.getElementById('dll-dot');
-  const dllLabel = document.getElementById('dll-label');
-  const dllSub = document.getElementById('dll-sub');
-  const btnReinstall = document.getElementById('btn-reinstall-dll');
-  if (status.dll.installed) {
-    dllDot.className = 'status-dot ok';
-    dllLabel.textContent = 'Installée';
-    dllSub.textContent = status.dll.path;
-    btnReinstall.style.display = 'none';
-  } else {
-    dllDot.className = 'status-dot ko';
-    dllLabel.textContent = 'Manquante (probablement supprimée par l\'antivirus)';
-    dllSub.textContent = status.dll.path;
-    btnReinstall.style.display = 'inline-block';
-  }
-
-  const svcDot = document.getElementById('svc-dot');
-  const svcLabel = document.getElementById('svc-label');
-  const svcSub = document.getElementById('svc-sub');
-  if (status.service.running) {
-    svcDot.className = 'status-dot ok';
-    svcLabel.textContent = 'Actif';
-    svcSub.textContent = 'PecExpressService (RUNNING)';
-  } else if (status.service.installed) {
-    svcDot.className = 'status-dot ko';
-    svcLabel.textContent = 'Installé mais arrêté';
-    svcSub.textContent = 'PecExpressService (STOPPED)';
-  } else {
-    svcDot.className = 'status-dot ko';
-    svcLabel.textContent = 'Non installé';
-    svcSub.textContent = '';
-  }
 }
 
 async function refreshStatus() {
@@ -156,17 +100,6 @@ function toast(msg) {
   t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), 3000);
 }
-
-document.getElementById('btn-reinstall-dll').addEventListener('click', async () => {
-  const btn = document.getElementById('btn-reinstall-dll');
-  btn.disabled = true;
-  btn.textContent = 'Réinstallation…';
-  const res = await api.reinstallDll();
-  btn.disabled = false;
-  btn.textContent = 'Réinstaller';
-  toast(res.ok ? 'DLL réinstallée' : ('Échec: ' + res.error));
-  refreshStatus();
-});
 
 document.getElementById('btn-uninstall').addEventListener('click', async () => {
   if (!confirm('Désinstaller complètement Mon devis dentaire Connecté ?\n\nCela supprime: service Windows, DLL, application, registry et données.')) return;
