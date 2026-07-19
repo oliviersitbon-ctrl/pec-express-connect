@@ -8,7 +8,7 @@
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      background: linear-gradient(135deg, #6366F1 0%, #8B5CF6 50%, #EC4899 100%);
       color: #0f172a;
       height: 100vh;
       display: flex;
@@ -28,7 +28,7 @@
     .brand { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 18px; }
     .logo {
       width: 38px; height: 38px; border-radius: 11px;
-      background: #10b981; color: #fff; font-weight: 800; font-size: 15px;
+      background: linear-gradient(135deg, #6366F1, #8B5CF6); color: #fff; font-weight: 800; font-size: 15px;
       display: flex; align-items: center; justify-content: center;
     }
     .brand-txt { text-align: left; }
@@ -37,7 +37,7 @@
 
     .spinner {
       width: 42px; height: 42px; margin: 6px auto 14px;
-      border: 4px solid #d1fae5; border-top-color: #10b981; border-radius: 50%;
+      border: 4px solid #E0E7FF; border-top-color: #6366F1; border-radius: 50%;
       animation: spin .9s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
@@ -67,8 +67,8 @@
       border: none; border-radius: 11px; padding: 10px 14px;
       font-size: 13px; font-weight: 600; cursor: pointer; transition: .15s;
     }
-    .btn-primary { background: #10b981; color: #fff; }
-    .btn-primary:hover { background: #059669; }
+    .btn-primary { background: #6366F1; color: #fff; }
+    .btn-primary:hover { background: #4F46E5; }
     .btn-ghost { background: #f1f5f9; color: #334155; }
     .btn-ghost:hover { background: #e2e8f0; }
     .hidden { display: none !important; }
