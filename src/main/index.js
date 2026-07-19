@@ -305,6 +305,9 @@ let setupWindow = null;
 let tray = null;
 let isQuitting = false;
 let watcher = null;
+// Appairage par connexion MDD (device pairing) : fenêtre d'attente + état du poll.
+let _pairWin = null;
+let _pairPoll = null;
 
 function createSetupWindow() {
   if (setupWindow) return;
@@ -911,10 +914,11 @@ async function sendDevisToPatient(data) {
   const apiKey = cfg.apiKey || '';
 
   if (!apiKey) {
-    // Poste non appairé : on ouvre directement la fenêtre « Connecter ce poste »
-    // pour que l'utilisateur colle sa clé sur-le-champ (onboarding fluide).
-    log('[DEVIS] Poste non appairé -> ouverture de la fenêtre de connexion');
-    try { openConnectWindow(); } catch (e) { log('[DEVIS] ouverture fenêtre connexion KO: ' + e.message); }
+    // Poste non appairé : on lance l'appairage par CONNEXION MDD (ouvre la page
+    // MDD, le praticien se connecte identifiant/mot de passe et valide le poste —
+    // aucune clé à saisir).
+    log('[DEVIS] Poste non appairé -> lancement appairage par connexion MDD');
+    try { openPairingFlow(); } catch (e) { log('[DEVIS] ouverture appairage KO: ' + e.message); }
     return false;
   }
 
@@ -1164,15 +1168,66 @@ async function sendDevisToPatient(data) {
 }
 
 /**
- * Fenetre d'appairage du poste : le praticien colle la cle "Connecteur"
- * (Parametres > Connecteur). On appelle /api/desktop/whoami pour recuperer la
- * bonne base (MDD ou Labora) et on memorise cle + urls dans la config locale.
+ * Appairage par CONNEXION MDD (flux « device pairing ») — SEULE voie d'appairage.
+ * L'utilisateur ne manipule AUCUNE clé. On appelle /api/desktop/pair/start (host
+ * MDD), on ouvre la page MDD dans le navigateur (le praticien se connecte
+ * identifiant/mot de passe et valide son cabinet), puis on interroge
+ * /api/desktop/pair/poll avec le deviceCode secret jusqu'à approbation. À
+ * l'approbation, on mémorise la clé du cabinet + sa base (MDD/Labora), on
+ * enregistre le poste (garde-fou) et on ferme la fenêtre d'attente.
  */
-function openConnectWindow() {
+async function openPairingFlow() {
+  const fetch = require('node-fetch');
+  const cm = require('./config-manager');
+  const site = CONFIG.siteUrl; // /api/desktop/* ne vit que sur le host MDD.
+
+  // Déjà une fenêtre d'attente ouverte -> on la ramène au premier plan.
+  if (_pairWin && !_pairWin.isDestroyed()) {
+    try { _pairWin.show(); _pairWin.focus(); } catch (e) {}
+    return;
+  }
+  if (_pairPoll) { clearInterval(_pairPoll); _pairPoll = null; }
+
+  // 1) Démarre la session d'appairage côté serveur.
+  let sess = null;
   try {
-    const win = new BrowserWindow({
-      width: 470, height: 360,
-      resizable: false, minimizable: false, maximizable: false,
+    const res = await fetch(site + '/api/desktop/pair/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hostname: os.hostname() }),
+    });
+    sess = await res.json().catch(() => ({}));
+    if (!res.ok || !sess || !sess.ok || !sess.deviceCode || !sess.url) {
+      throw new Error((sess && sess.error) || ('HTTP ' + res.status));
+    }
+  } catch (e) {
+    log('[PAIR-LOGIN] Démarrage KO: ' + e.message);
+    try {
+      require('./block-popup').show({
+        tone: 'info',
+        heading: "Connexion impossible pour le moment",
+        message: "Impossible de démarrer la connexion du poste. Vérifiez votre accès internet puis recliquez sur Devis, PEC ou Questionnaire.",
+        phone: supportPhone(),
+      });
+    } catch (e2) {}
+    return;
+  }
+
+  const deviceCode = sess.deviceCode;
+  const userCode = sess.userCode || '';
+  const url = sess.url;
+  const pollIntervalMs = Math.max(1500, Number(sess.pollIntervalMs) || 2500);
+  const expiresInMs = Math.max(60000, Number(sess.expiresInMs) || 10 * 60 * 1000);
+  const deadline = Date.now() + expiresInMs;
+
+  // 2) Ouvre la page MDD dans le navigateur par défaut (connexion + validation).
+  try { shell.openExternal(url); } catch (e) { log('[PAIR-LOGIN] openExternal KO: ' + e.message); }
+
+  // 3) Fenêtre d'attente locale (affiche le code + statut).
+  try {
+    _pairWin = new BrowserWindow({
+      width: 470, height: 380,
+      resizable: false, minimizable: true, maximizable: false,
       title: 'Connecter ce poste',
       autoHideMenuBar: true,
       webPreferences: {
@@ -1181,10 +1236,63 @@ function openConnectWindow() {
         preload: path.join(__dirname, '..', 'preload.js'),
       },
     });
-    win.loadFile(path.join(__dirname, '..', 'renderer', 'connect.html'));
+    _pairWin.loadFile(path.join(__dirname, '..', 'renderer', 'pairing-wait.html'));
+    _pairWin.webContents.on('did-finish-load', () => {
+      try { _pairWin.webContents.send('pair-info', { userCode, url }); } catch (e) {}
+    });
+    _pairWin.on('closed', () => {
+      _pairWin = null;
+      if (_pairPoll) { clearInterval(_pairPoll); _pairPoll = null; }
+    });
   } catch (e) {
-    log("[PAIR] Impossible d'ouvrir la fenetre d'appairage: " + e.message);
+    log('[PAIR-LOGIN] fenêtre attente KO: ' + e.message);
   }
+
+  function sendStatus(payload) {
+    try { if (_pairWin && !_pairWin.isDestroyed()) _pairWin.webContents.send('pair-status', payload); } catch (e) {}
+  }
+
+  // 4) Polling jusqu'à approbation / expiration.
+  _pairPoll = setInterval(async () => {
+    if (Date.now() > deadline) {
+      clearInterval(_pairPoll); _pairPoll = null;
+      sendStatus({ state: 'expired' });
+      log('[PAIR-LOGIN] Expiré sans validation');
+      return;
+    }
+    try {
+      const res = await fetch(site + '/api/desktop/pair/poll', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceCode }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (j && j.status === 'approved') {
+        clearInterval(_pairPoll); _pairPoll = null;
+        const base = j.base || CONFIG.siteUrl;
+        const pecNouvelle = j.pecNouvelle || (base + '/prises-en-charge/nouvelle');
+        cm.setOverride('apiKey', j.apiKey);
+        cm.setOverride('urls.site', base);
+        cm.setOverride('urls.pecNouvelle', pecNouvelle);
+        if (j.modules && typeof j.modules === 'object') {
+          cm.setOverride('modules', { pec: j.modules.pec !== false, devis: j.modules.devis !== false });
+        }
+        log('[PAIR-LOGIN] Poste connecté à ' + (j.cabinetName || '?') + ' (' + base + ', labora=' + !!j.isLabora + ')');
+        try { registerPoste(); } catch (e) {}
+        try { refreshModules(); } catch (e) {}
+        sendStatus({ state: 'approved', cabinetName: j.cabinetName || '' });
+        // Ferme la fenêtre d'attente après un court instant (laisse voir le succès).
+        setTimeout(() => { try { if (_pairWin && !_pairWin.isDestroyed()) _pairWin.close(); } catch (e) {} }, 2500);
+      } else if (j && j.status === 'expired') {
+        clearInterval(_pairPoll); _pairPoll = null;
+        sendStatus({ state: 'expired' });
+      }
+      // status 'pending' -> on continue d'attendre (rien à faire).
+    } catch (e) {
+      // Erreur réseau transitoire -> on réessaie au prochain tick.
+      log('[PAIR-LOGIN] poll exception: ' + e.message);
+    }
+  }, pollIntervalMs);
 }
 
 /**
@@ -1525,14 +1633,14 @@ async function readAndOpenMdd(docName, intent) {
           return;
         }
 
-        // Poste non appairé : plutôt que d'ouvrir le wizard en login manuel, on
-        // ouvre la fenêtre « Connecter ce poste » pour coller la clé sur-le-champ.
+        // Poste non appairé : on lance l'appairage par CONNEXION MDD (page MDD +
+        // identifiant/mot de passe), plutôt que le collage de clé.
         {
           const { getConfig: getCfgPair } = require('./config-manager');
           if (!((getCfgPair() || {}).apiKey || '')) {
-            log('[PEC] Poste non appairé -> ouverture de la fenêtre de connexion');
+            log('[PEC] Poste non appairé -> lancement appairage par connexion MDD');
             try { hideLoader(); } catch (e) {}
-            try { openConnectWindow(); } catch (e) { log('[PEC] ouverture fenêtre connexion KO: ' + e.message); }
+            try { openPairingFlow(); } catch (e) { log('[PEC] ouverture appairage KO: ' + e.message); }
             resolve(false);
             return;
           }
@@ -1808,7 +1916,7 @@ function createTray() {
     { type: 'separator' },
     {
       label: 'Connecter ce poste\u2026',
-      click: openConnectWindow
+      click: openPairingFlow
     },
     { type: 'separator' },
     {
@@ -2875,35 +2983,10 @@ async function uploadToCloud(filePath) {
 function setupIpcHandlers() {
   log('[IPC] Setup des handlers IPC...');
 
-  // Appairage du poste : valide la cle via /api/desktop/whoami et memorise
-  // cle + base (MDD ou Labora) dans la config locale.
-  ipcMain.handle('desktop-pair', async (event, key) => {
-    const apiKey = (key || '').trim();
-    if (!apiKey) return { ok: false, error: 'Cle vide' };
-    const fetch = require('node-fetch');
-    const cm = require('./config-manager');
-    const probeBase = 'https://app.mondevisdentaire.com';
-    try {
-      const res = await fetch(probeBase + '/api/desktop/whoami', { headers: { 'x-api-key': apiKey } });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok || !json.ok) return { ok: false, error: (json && json.error) || ('HTTP ' + res.status) };
-      const base = json.base || probeBase;
-      const pecNouvelle = json.pecNouvelle || (base + '/prises-en-charge/nouvelle');
-      cm.setOverride('apiKey', apiKey);
-      cm.setOverride('urls.site', base);
-      cm.setOverride('urls.pecNouvelle', pecNouvelle);
-      if (json.modules && typeof json.modules === 'object') {
-        cm.setOverride('modules', { pec: json.modules.pec !== false, devis: json.modules.devis !== false });
-      }
-      log('[PAIR] Poste connecte a ' + (json.cabinetName || '?') + ' (' + base + ', labora=' + !!json.isLabora + ')');
-      // Enregistre le poste (store-id + IDPOSTE) juste après l'appairage — garde-fou
-      // multi-poste (observabilité). Non bloquant.
-      try { registerPoste(); } catch (e) {}
-      return { ok: true, cabinetName: json.cabinetName || '', base, isLabora: !!json.isLabora };
-    } catch (e) {
-      log('[PAIR] Erreur appairage: ' + e.message);
-      return { ok: false, error: e.message };
-    }
+  // Appairage par connexion MDD (device pairing) : la fenêtre d'attente peut
+  // rouvrir la page de connexion dans le navigateur.
+  ipcMain.on('pair-reopen-browser', (event, url) => {
+    try { if (url) shell.openExternal(String(url)); } catch (e) {}
   });
 
   // Modules actifs (PEC / Devis) - pilote l'affichage des boutons overlay.
@@ -3327,9 +3410,9 @@ if (!gotTheLock) {
           const c = require('./config-manager').getConfig() || {};
           const apiKey = c.apiKey || '';
           if (!apiKey) {
-            // Poste non appairé -> on ouvre la fenêtre de connexion pour coller la clé.
-            log('[QUESTIONNAIRE] Poste non appairé -> ouverture de la fenêtre de connexion');
-            try { openConnectWindow(); } catch (e) {}
+            // Poste non appairé -> appairage par CONNEXION MDD (aucune clé à saisir).
+            log('[QUESTIONNAIRE] Poste non appairé -> lancement appairage par connexion MDD');
+            try { openPairingFlow(); } catch (e) {}
             return { ok: false, error: 'not-paired' };
           }
           // Garde-fou : poste en attente/refusé -> en veille, pas d'envoi tablette.

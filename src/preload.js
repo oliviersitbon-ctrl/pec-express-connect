@@ -26,7 +26,10 @@ contextBridge.exposeInMainWorld('mdd', {
 
   // Overlay "Lancer la PEC" - clic du bouton flottant
   lancerPec: (intent) => ipcRenderer.invoke('overlay-lancer-pec', intent),
-  pairConnect: (key) => ipcRenderer.invoke('desktop-pair', key),
+  // Appairage par connexion MDD (device pairing) — fenêtre d'attente.
+  onPairInfo: (cb) => ipcRenderer.on('pair-info', (e, data) => cb(data)),
+  onPairStatus: (cb) => ipcRenderer.on('pair-status', (e, data) => cb(data)),
+  pairReopenBrowser: (url) => ipcRenderer.send('pair-reopen-browser', url),
   getModules: () => ipcRenderer.invoke('get-modules'),
   devisEmailGet: () => ipcRenderer.invoke('devis-email-get'),
   devisEmailSubmit: (payload) => ipcRenderer.send('devis-email-submit', payload),
