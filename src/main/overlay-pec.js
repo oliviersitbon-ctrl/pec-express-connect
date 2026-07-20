@@ -132,13 +132,12 @@ function showOverlay(logos) {
   _lastHideReason = null; // reset : le prochain masquage sera logue une fois
 }
 
-function hideOverlay() {
-  // Epinglage: pendant un envoi (clic PEC/devis), on garde l'overlay visible
-  // BUSY_PIN_MS meme si Logos perd le premier plan (Chrome s'ouvre devant) ->
-  // la confirmation « Envoi en cours / ✓ Envoye » reste visible sans disparaitre.
-  // EXCEPTION: en suspension explicite (impression du devis), on DOIT masquer
-  // pour ne pas gener le clic imprimante simule -> l'epinglage ne s'applique pas.
-  if (!_suspended && Date.now() < _busyUntil) return;
+function hideOverlay(force) {
+  // Epinglage: pendant un envoi qui RESTE dans Logos, on garde brièvement
+  // l'overlay visible (confirmation « ✓ Envoye »). MAIS `force=true` outrepasse
+  // cet épinglage : on l'utilise dès que Logos n'est plus au premier plan, pour
+  // que l'overlay ne flotte JAMAIS au-dessus d'une fenêtre qui recouvre Logos.
+  if (!force && !_suspended && Date.now() < _busyUntil) return;
   if (_overlayWin && _overlayWin.isVisible()) {
     _overlayWin.hide();
     if (_lastHideReason !== 'hidden') { log('Overlay CACHE'); _lastHideReason = 'hidden'; }
@@ -156,12 +155,13 @@ function hideOverlay() {
  * expiré si on n'est plus sur la page Devis.
  */
 function keepVisibleForConfirmation(ms) {
+  // On épingle la confirmation « ✓ » UNIQUEMENT si l'overlay est DÉJÀ visible
+  // (donc Logos est au premier plan sur la page Devis). On ne le fait surtout PAS
+  // réapparaître par-dessus une autre fenêtre (le navigateur MDD) qui recouvre
+  // Logos — sinon les pastilles flottent hors de Logos.
+  if (!_overlayWin || _overlayWin.isDestroyed() || !_overlayWin.isVisible()) return;
   const dur = typeof ms === 'number' && ms > 0 ? ms : 2500;
   _busyUntil = Math.max(_busyUntil, Date.now() + dur);
-  if (!_overlayWin || _overlayWin.isDestroyed()) return;
-  if (!_overlayWin.isVisible()) {
-    try { _overlayWin.showInactive(); log('Overlay ré-affiché (confirmation ✓)'); } catch (e) {}
-  }
 }
 
 /**
@@ -201,24 +201,19 @@ async function refreshDevisDetection() {
     // fermé (régression signalée). L'épinglage d'envoi (_busyUntil) est respecté
     // par hideOverlay, donc la confirmation reste visible pendant un envoi.
     if (!r.active) {
-      // Envoi en cours (busy-pin) : l'overlay reste ÉPINGLÉ visible. MAIS
-      // l'épinglage ne doit protéger QUE contre une bascule d'APPLICATION
-      // (Chrome s'ouvre devant Logos pendant un envoi -> 'logos-not-foreground')
-      // pour garder la confirmation visible. Si on est TOUJOURS dans Logos mais
-      // sur une AUTRE page (état civil… -> 'no-devis-window'), on masque même en
-      // busy-pin, sinon les boutons restent affichés hors de la page Devis
-      // (régression signalée). On garde _currentDevisInfo tant qu'on épingle.
-      const appSwitch = r.reason === 'logos-not-foreground';
-      if (appSwitch && Date.now() < _busyUntil) return;
-      if (!appSwitch) _busyUntil = 0; // on a quitté la page Devis DANS Logos
+      // Règle stricte : l'overlay surmonte LOGOS, mais jamais une fenêtre qui
+      // recouvre Logos (navigateur MDD, autre appli). Dès que Logos n'est pas au
+      // premier plan sur la page Devis — autre appli devant ('logos-not-foreground')
+      // OU autre page Logos ('no-devis-window') — on masque IMMÉDIATEMENT et on
+      // annule tout épinglage d'envoi (`hideOverlay(true)` outrepasse le busy-pin).
+      // On ne garde donc plus la confirmation « ✓ » par-dessus le navigateur.
+      // On NE remet PAS _currentDevisInfo à null : le bouton reste cohérent et
+      // cliquable dès qu'on revient sur le MÊME devis, sans re-lecture asynchrone.
+      _busyUntil = 0;
       if (_lastHideReason !== (r.reason || 'no-devis')) {
-        log(`Pas sur page Devis (raison=${r.reason || '?'}) -> overlay masqué`);
+        log(`Logos pas au premier plan sur page Devis (raison=${r.reason || '?'}) -> overlay masqué`);
       }
-      // On NE remet PAS _currentDevisInfo à null ici : l'overlay est masqué (donc
-      // pas de clic possible), et le garder évite un "trou" au ré-affichage du
-      // MÊME devis (le bouton reste cohérent et cliquable dès qu'il réapparaît,
-      // sans attendre la lecture asynchrone).
-      hideOverlay();
+      hideOverlay(true);
       return;
     }
 
