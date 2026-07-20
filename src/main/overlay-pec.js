@@ -156,7 +156,7 @@ function hideOverlay() {
  * expiré si on n'est plus sur la page Devis.
  */
 function keepVisibleForConfirmation(ms) {
-  const dur = typeof ms === 'number' && ms > 0 ? ms : 5000;
+  const dur = typeof ms === 'number' && ms > 0 ? ms : 2500;
   _busyUntil = Math.max(_busyUntil, Date.now() + dur);
   if (!_overlayWin || _overlayWin.isDestroyed()) return;
   if (!_overlayWin.isVisible()) {
@@ -438,7 +438,7 @@ function stopCursorPoll() {
 // des qu'on quitte la page Devis, refreshDevisDetection -> hideOverlay. Les
 // gardes _detectionInflight / _detectorBusy evitent tout chevauchement de spawn.
 let _detectPollTimer = null;
-const DETECT_POLL_MS = 2000;
+const DETECT_POLL_MS = 1000;
 function startDetectPoll() {
   if (_detectPollTimer) return;
   _detectPollTimer = setInterval(() => {

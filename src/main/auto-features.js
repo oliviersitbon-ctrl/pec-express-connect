@@ -140,15 +140,16 @@ function setupAutoUpdate() {
     log('Update error: ' + (err && err.message ? err.message : err));
   });
 
-  // Check immediat puis toutes les heures
+  // Check rapide au demarrage puis toutes les 20 min (propagation plus rapide
+  // des nouvelles versions sur le parc de postes).
   setTimeout(() => {
     autoUpdater.checkForUpdates().catch(() => {});
-  }, 30 * 1000);  // 30s apres demarrage
+  }, 15 * 1000);  // 15s apres demarrage
   setInterval(() => {
     autoUpdater.checkForUpdates().catch(() => {});
-  }, 60 * 60 * 1000);  // toutes les heures
+  }, 20 * 60 * 1000);  // toutes les 20 min
 
-  log('Auto-update configure (check 30s puis chaque heure)');
+  log('Auto-update configure (check 15s puis toutes les 20 min)');
 }
 
 module.exports = {

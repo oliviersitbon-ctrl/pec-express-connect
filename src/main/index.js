@@ -1566,7 +1566,7 @@ async function readAndOpenMdd(docName, intent) {
           // (côté renderer, au retour de ce clic) soit bien visible après
           // l'impression (sinon l'overlay reste masqué si Logos n'est pas encore
           // redevenu la fenêtre active).
-          try { overlayMod.keepVisibleForConfirmation(5000); } catch (e) {}
+          try { overlayMod.keepVisibleForConfirmation(2500); } catch (e) {}
           resolve(true);
           return;
         }
@@ -1708,7 +1708,7 @@ async function readAndOpenMdd(docName, intent) {
         // Ré-affiche l'overlay épinglé pour que la confirmation « ✓ Ouvert »
         // reste visible même quand Chrome passe au premier plan (l'overlay est
         // alwaysOnTop -> il flotte au-dessus le temps de la confirmation).
-        try { require('./overlay-pec').keepVisibleForConfirmation(5000); } catch (e) {}
+        try { require('./overlay-pec').keepVisibleForConfirmation(2500); } catch (e) {}
         resolve(true);
       } catch (e) {
         log('[MDDREADER] JSON parse error: ' + e.message);
