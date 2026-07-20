@@ -432,18 +432,33 @@ function stopCursorPoll() {
 // hors page devis »). Ce poll leger relance detectDevisPage toutes les ~2 s :
 // des qu'on quitte la page Devis, refreshDevisDetection -> hideOverlay. Les
 // gardes _detectionInflight / _detectorBusy evitent tout chevauchement de spawn.
+// Poll ADAPTATIF (setTimeout auto-planifié, pas setInterval → jamais de spawn
+// PowerShell qui se chevauche) :
+//   - overlay VISIBLE (on est sur la page Devis) -> 500 ms : on repère vite la
+//     SORTIE de la page (masquage réactif).
+//   - overlay MASQUÉ (hors page Devis) -> 1000 ms : on guette l'APPARITION, cas
+//     moins urgent → poll plus léger pour le CPU du poste.
+// Le délai se mesure APRÈS la fin de la détection, ce qui garantit qu'un seul
+// PowerShell tourne à la fois.
 let _detectPollTimer = null;
-const DETECT_POLL_MS = 1000;
+const DETECT_POLL_ACTIVE_MS = 500;
+const DETECT_POLL_IDLE_MS = 1000;
 function startDetectPoll() {
   if (_detectPollTimer) return;
-  _detectPollTimer = setInterval(() => {
-    if (_suspended) return;            // impression auto en cours -> deja gere
-    if (_detectionInflight) return;    // une detection tourne deja
-    refreshDevisDetection();
-  }, DETECT_POLL_MS);
+  const tick = () => {
+    const schedule = () => {
+      const visible = !!(_overlayWin && !_overlayWin.isDestroyed() && _overlayWin.isVisible());
+      _detectPollTimer = setTimeout(tick, visible ? DETECT_POLL_ACTIVE_MS : DETECT_POLL_IDLE_MS);
+    };
+    // Impression auto en cours, ou une détection tourne déjà -> on saute ce tour
+    // mais on replanifie quand même.
+    if (_suspended || _detectionInflight) { schedule(); return; }
+    Promise.resolve(refreshDevisDetection()).catch(() => {}).finally(schedule);
+  };
+  _detectPollTimer = setTimeout(tick, DETECT_POLL_IDLE_MS);
 }
 function stopDetectPoll() {
-  if (_detectPollTimer) { clearInterval(_detectPollTimer); _detectPollTimer = null; }
+  if (_detectPollTimer) { clearTimeout(_detectPollTimer); _detectPollTimer = null; }
 }
 
 /**
