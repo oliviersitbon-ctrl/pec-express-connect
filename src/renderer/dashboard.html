@@ -56,6 +56,18 @@
     <span class="version" id="version">v—</span>
   </header>
 
+  <div class="card">
+    <h2>Compte appairé</h2>
+    <div class="status-row">
+      <span class="status-dot unknown" id="pair-dot"></span>
+      <span class="status-label">
+        <span id="pair-title">Vérification…</span>
+        <span class="sub" id="pair-sub"></span>
+      </span>
+      <button class="danger" id="btn-unpair" disabled>Désappareiller</button>
+    </div>
+  </div>
+
   <div class="actions">
     <button class="secondary" id="btn-logs">Voir les logs</button>
     <button class="danger" id="btn-uninstall" style="margin-left:auto">Désinstaller complètement</button>
@@ -86,6 +98,24 @@ const api = window.logosConnectApi;
 function applyStatus(status) {
   if (!status) return;
   document.getElementById('version').textContent = 'v' + status.version;
+
+  const p = status.pairing || {};
+  const dot = document.getElementById('pair-dot');
+  const title = document.getElementById('pair-title');
+  const sub = document.getElementById('pair-sub');
+  const btn = document.getElementById('btn-unpair');
+  if (p.paired) {
+    dot.className = 'status-dot ok';
+    title.textContent = p.cabinetName ? ('Appairé — ' + p.cabinetName) : 'Poste appairé';
+    sub.textContent = (p.isLabora ? 'via Labora · ' : '') + (p.site || '');
+    btn.disabled = false;
+    btn.style.display = '';
+  } else {
+    dot.className = 'status-dot ko';
+    title.textContent = 'Poste non appairé';
+    sub.textContent = 'Cliquez sur Devis, PEC ou Questionnaire dans Logos pour connecter ce poste.';
+    btn.disabled = true;
+  }
 }
 
 async function refreshStatus() {
@@ -115,6 +145,22 @@ document.getElementById('btn-uninstall').addEventListener('click', async () => {
     btn.textContent = 'Désinstaller complètement';
     toast('Échec: ' + res.error);
   }
+});
+
+document.getElementById('btn-unpair').addEventListener('click', async () => {
+  if (!confirm('Désappareiller ce poste ?\n\nLa connexion au cabinet actuel sera effacée. Vous pourrez ensuite reconnecter ce poste à un autre compte : cliquez sur Devis, PEC ou Questionnaire dans Logos, et connectez-vous avec le nouveau compte.')) return;
+  const btn = document.getElementById('btn-unpair');
+  const old = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Désappairage…';
+  try {
+    const res = await api.unpair();
+    if (res && res.ok) {
+      toast('Poste désappairé ✓ — reconnectez-le via Devis / PEC / Questionnaire');
+    } else {
+      toast('Échec: ' + ((res && res.error) || 'inconnu'));
+    }
+  } catch (e) { toast('Erreur: ' + (e && e.message ? e.message : e)); }
+  finally { btn.textContent = old; await refreshStatus(); }
 });
 
 document.getElementById('logs-upload').addEventListener('click', async () => {

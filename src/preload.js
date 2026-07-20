@@ -110,5 +110,6 @@ contextBridge.exposeInMainWorld('logosConnectApi', {
   uninstallAll: () => ipcRenderer.invoke('lc-uninstall-all'),
   getLogs: (tab) => ipcRenderer.invoke('lc-get-logs', tab),
   uploadLogs: () => ipcRenderer.invoke('lc-upload-logs'),
+  unpair: () => ipcRenderer.invoke('lc-unpair'),
   onStatusChanged: (cb) => ipcRenderer.on('lc-status-changed', (e, status) => cb(status))
 });

@@ -320,6 +320,26 @@ function setOverride(key, value) {
 }
 
 /**
+ * Efface l'appairage local (désappairage). Retire du fichier d'overrides la
+ * clé API et tout ce qui identifie le compte/cabinet courant, de sorte que le
+ * poste redevienne « non appairé » et puisse être reconnecté à un AUTRE compte
+ * (au prochain clic Devis / PEC / Questionnaire, le flux d'appairage repart).
+ * Ne touche pas aux réglages d'extraction ni aux chemins Logos locaux.
+ */
+function clearPairing() {
+  const overrides = loadOverrides();
+  for (const k of ['apiKey', 'cabinetName', 'isLabora', 'idPoste', 'modules', 'urls']) {
+    delete overrides[k];
+  }
+  ensureConfigDir();
+  fs.writeFileSync(OVERRIDES_FILE, JSON.stringify(overrides, null, 2));
+  log('Appairage effacé (clé API + cabinet + urls réinitialisés)');
+  // Recharge la config pour repartir sur les valeurs par défaut.
+  currentConfig = null;
+  loadConfig(true);
+}
+
+/**
  * Démarre la vérification périodique des mises à jour
  */
 function startUpdateChecker() {

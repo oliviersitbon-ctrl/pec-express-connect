@@ -59,10 +59,18 @@ function computeStatus() {
   const dllPath = dllInstalledPath();
   const dllInstalled = fs.existsSync(dllPath);
   const svc = readServiceStatus();
+  let cfg = {};
+  try { cfg = require('./config-manager').getConfig() || {}; } catch (e) { /* défaut */ }
   return {
     version: app.getVersion(),
     dll: { installed: dllInstalled, path: dllPath },
-    service: { installed: svc.installed, running: svc.running }
+    service: { installed: svc.installed, running: svc.running },
+    pairing: {
+      paired: !!(cfg.apiKey),
+      cabinetName: cfg.cabinetName || '',
+      site: (cfg.urls && cfg.urls.site) || '',
+      isLabora: !!cfg.isLabora
+    }
   };
 }
 
@@ -110,7 +118,7 @@ function createWindow() {
   if (win && !win.isDestroyed()) return win;
   win = new BrowserWindow({
     width: 480,
-    height: 460,
+    height: 540,
     show: false,
     title: 'Mon devis dentaire Connecté v' + app.getVersion(),
     resizable: false,
@@ -146,6 +154,21 @@ function show() {
 
 function registerIpc() {
   ipcMain.handle('lc-get-status', () => computeStatus());
+
+  // Désappairage : efface la clé API + l'identité du cabinet courant, pour
+  // pouvoir reconnecter le poste à un AUTRE compte. Le poste redevient « non
+  // appairé » ; le prochain clic Devis / PEC / Questionnaire relance l'appairage.
+  ipcMain.handle('lc-unpair', async () => {
+    try {
+      require('./config-manager').clearPairing();
+      log('Poste désappairé (clé API effacée)');
+      pushStatusIfChanged();
+      return { ok: true };
+    } catch (e) {
+      log('Désappairage échec: ' + e.message);
+      return { ok: false, error: e.message };
+    }
+  });
 
   ipcMain.handle('lc-reinstall-dll', async () => {
     const dllPath = dllInstalledPath();

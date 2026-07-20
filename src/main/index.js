@@ -1281,6 +1281,10 @@ async function openPairingFlow() {
         cm.setOverride('apiKey', j.apiKey);
         cm.setOverride('urls.site', base);
         cm.setOverride('urls.pecNouvelle', pecNouvelle);
+        // Mémorise le cabinet appairé (affiché dans le tableau de bord, sert au
+        // bouton « Désappareiller »).
+        cm.setOverride('cabinetName', j.cabinetName || '');
+        cm.setOverride('isLabora', !!j.isLabora);
         if (j.modules && typeof j.modules === 'object') {
           cm.setOverride('modules', { pec: j.modules.pec !== false, devis: j.modules.devis !== false });
         }
