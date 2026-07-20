@@ -8,7 +8,7 @@
 
 const { BrowserWindow, ipcMain, screen } = require('electron');
 const path = require('path');
-const { detectDevisPage, setLogger: setDetLogger } = require('./logos-detector');
+const { detectDevisPage, startDetectorStream, stopDetectorStream, setLogger: setDetLogger } = require('./logos-detector');
 const { readCurrentDevis, setLogger: setMemLogger } = require('./logos-memory-reader');
 const { setChildOf, unsetChild, setLogger: setW32Logger } = require('./win32-utils');
 const { psLoadNative } = require('./native-dll');
@@ -30,6 +30,10 @@ let _watcherProc = null;
 let _onLancerPec = null;
 let _currentDevisInfo = null;
 let _detectionInflight = false;
+let _processingInflight = false;   // garde le traitement d'un résultat (lecture mémoire du devis)
+let _lastStreamAt = 0;             // horodatage du dernier état reçu du détecteur persistant
+let _lastStreamJson = '';          // dernier JSON reçu (dédup côté Node)
+const STREAM_FRESH_MS = 2000;      // flux considéré vivant s'il a émis il y a < 2 s
 let _attachedParentHwnd = null; // HWND du parent Logos auquel on est attache
 let _suspended = false; // quand true: overlay masque + detection en pause (ex: pendant l'impression auto)
 let _busyUntil = 0;     // ms (Date.now) jusqu'auquel l'overlay reste EPINGLE visible
@@ -185,7 +189,21 @@ async function refreshDevisDetection() {
   _detectionInflight = true;
   try {
     const r = await detectDevisPage();
+    await applyDetection(r);
+  } finally {
+    _detectionInflight = false;
+  }
+}
 
+// Applique un résultat de détection `r` — qu'il vienne du détecteur PERSISTANT
+// (flux) ou d'un detectDevisPage ponctuel (secours) : affiche / masque / grise
+// l'overlay. _processingInflight évite tout chevauchement (lecture mémoire du
+// devis) quand les états arrivent rapprochés.
+async function applyDetection(r) {
+  if (_suspended) { hideOverlay(); return; }
+  if (_processingInflight) return;
+  _processingInflight = true;
+  try {
     if (r.reason === 'logos-not-running') {
       // Logos n'est pas en avant -> cacher completement
       if (_lastHideReason !== r.reason) { log(`Logos = absent | raison=${r.reason}`); }
@@ -295,10 +313,18 @@ async function refreshDevisDetection() {
       updateOverlayInfo({ enabled: false, reason: 'Devis en cours de lecture' });
     }
   } catch (e) {
-    log('refreshDevisDetection erreur: ' + e.message);
+    log('applyDetection erreur: ' + e.message);
   } finally {
-    _detectionInflight = false;
+    _processingInflight = false;
   }
+}
+
+// Détection de SECOURS : ne relance un PowerShell ponctuel QUE si le détecteur
+// persistant est mort (rien émis depuis STREAM_FRESH_MS). Tant que le flux est
+// vivant, il pilote déjà l'overlay → on ne dépense aucun spawn ici.
+function maybeDetect() {
+  if (Date.now() - _lastStreamAt < STREAM_FRESH_MS) return;
+  refreshDevisDetection();
 }
 
 /**
@@ -366,8 +392,9 @@ while ([FGHook]::GetMessage([ref]$msg, [IntPtr]::Zero, 0, 0) -gt 0) {
         continue;
       }
       if (line.startsWith('FOREGROUND ')) {
-        // Changement de fenetre detecte -> verifie si on est sur Logos page Devis
-        refreshDevisDetection();
+        // Changement de fenetre detecte -> le flux persistant s'en charge (≤250ms);
+        // maybeDetect ne relance un PowerShell ponctuel que si le flux est mort.
+        maybeDetect();
       }
     }
   });
@@ -450,9 +477,12 @@ function startDetectPoll() {
       const visible = !!(_overlayWin && !_overlayWin.isDestroyed() && _overlayWin.isVisible());
       _detectPollTimer = setTimeout(tick, visible ? DETECT_POLL_ACTIVE_MS : DETECT_POLL_IDLE_MS);
     };
-    // Impression auto en cours, ou une détection tourne déjà -> on saute ce tour
-    // mais on replanifie quand même.
-    if (_suspended || _detectionInflight) { schedule(); return; }
+    // Impression auto en cours, ou une détection/traitement tourne déjà -> on
+    // saute ce tour mais on replanifie quand même.
+    if (_suspended || _detectionInflight || _processingInflight) { schedule(); return; }
+    // Détecteur persistant vivant -> il pilote la détection : ce poll n'est qu'un
+    // filet de secours, on ne relance donc AUCUN PowerShell ici.
+    if (Date.now() - _lastStreamAt < STREAM_FRESH_MS) { schedule(); return; }
     Promise.resolve(refreshDevisDetection()).catch(() => {}).finally(schedule);
   };
   _detectPollTimer = setTimeout(tick, DETECT_POLL_IDLE_MS);
@@ -552,6 +582,16 @@ function startOverlay(onLancerPec) {
   startWatcher();
   startCursorPoll();
   startDetectPoll();
+  // Détecteur PERSISTANT = source principale (rapide + peu de CPU). Le poll
+  // ci-dessus n'est plus qu'un filet de secours si ce flux venait à mourir.
+  try {
+    startDetectorStream((r, raw) => {
+      _lastStreamAt = Date.now();          // heartbeat : prouve que le flux est vivant
+      if (raw === _lastStreamJson) return; // pas de changement -> rien à faire
+      _lastStreamJson = raw;
+      applyDetection(r);
+    });
+  } catch (e) { log('startDetectorStream KO: ' + (e && e.message ? e.message : e)); }
 }
 
 /**
@@ -561,6 +601,7 @@ function stopOverlay() {
   stopWatcher();
   stopCursorPoll();
   stopDetectPoll();
+  try { stopDetectorStream(); } catch (e) {}
   if (_overlayWin && !_overlayWin.isDestroyed()) {
     _overlayWin.destroy();
     _overlayWin = null;

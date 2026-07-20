@@ -290,4 +290,73 @@ async function detectDevisPage() {
   });
 }
 
-module.exports = { setLogger, detectDevisPage };
+// ── Détecteur PERSISTANT (flux) ─────────────────────────────────────────────
+// Un SEUL PowerShell qui charge le type C# UNE fois, puis émet l'état en boucle
+// (toutes les ~250 ms) au lieu de relancer un process à chaque détection.
+// Détection quasi instantanée + bien moins de CPU sur le poste. On dérive le
+// script du PS_DETECTOR existant (même logique de détection, garantie) : on garde
+// le chargement de type en tête (hors boucle) et on met le CORPS dans un
+// while (exit 0 -> continue, Write-Output -> __Emit qui écrit une ligne JSON).
+const _PS_SPLIT = '$proc = Get-Process';
+const _psIdx = PS_DETECTOR.indexOf(_PS_SPLIT);
+const PS_DETECTOR_STREAM =
+  PS_DETECTOR.slice(0, _psIdx) + // chargement du type LD (une seule fois)
+  '\nfunction __Emit { param($s) [Console]::Out.WriteLine($s); [Console]::Out.Flush() }\n' +
+  'while ($true) {\n' +
+  '  Start-Sleep -Milliseconds 250\n' +
+  PS_DETECTOR.slice(_psIdx)
+    .replace(/Write-Output /g, '__Emit ')
+    .replace(/\bexit 0\b/g, 'continue') +
+  '\n}\n';
+
+let _streamProc = null;
+let _streamStop = false;
+
+/**
+ * Démarre le détecteur persistant. `onState(parsed, rawLine)` est appelé à chaque
+ * ligne JSON émise (~4/s). Relance automatiquement le process s'il meurt.
+ */
+function startDetectorStream(onState) {
+  if (_streamProc) return;
+  _streamStop = false;
+  const spawnOne = () => {
+    if (_streamStop) return;
+    let proc;
+    try {
+      proc = spawn('powershell.exe', [
+        '-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden',
+        '-Command', PS_DETECTOR_STREAM
+      ], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    } catch (e) { return; }
+    _streamProc = proc;
+    let buf = '';
+    proc.stdout.on('data', (d) => {
+      buf += d.toString('utf8');
+      let nl;
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (line.startsWith('{')) {
+          let parsed = null;
+          try { parsed = JSON.parse(line); } catch (e) { parsed = null; }
+          if (parsed) { try { onState(parsed, line); } catch (e) {} }
+        }
+      }
+    });
+    proc.stderr.on('data', () => {});
+    const relance = () => {
+      _streamProc = null;
+      if (!_streamStop) setTimeout(spawnOne, 2000); // relance après 2 s si mort
+    };
+    proc.on('close', relance);
+    proc.on('error', relance);
+  };
+  spawnOne();
+}
+
+function stopDetectorStream() {
+  _streamStop = true;
+  if (_streamProc) { try { _streamProc.kill(); } catch (e) {} _streamProc = null; }
+}
+
+module.exports = { setLogger, detectDevisPage, startDetectorStream, stopDetectorStream };
