@@ -111,5 +111,10 @@ contextBridge.exposeInMainWorld('logosConnectApi', {
   getLogs: (tab) => ipcRenderer.invoke('lc-get-logs', tab),
   uploadLogs: () => ipcRenderer.invoke('lc-upload-logs'),
   unpair: () => ipcRenderer.invoke('lc-unpair'),
-  onStatusChanged: (cb) => ipcRenderer.on('lc-status-changed', (e, status) => cb(status))
+  onStatusChanged: (cb) => ipcRenderer.on('lc-status-changed', (e, status) => cb(status)),
+  // Mise à jour manuelle (en complément de l'auto-update)
+  getUpdateState: () => ipcRenderer.invoke('lc-get-update-state'),
+  checkUpdate: () => ipcRenderer.invoke('lc-check-update'),
+  installUpdate: () => ipcRenderer.invoke('lc-install-update'),
+  onUpdateState: (cb) => ipcRenderer.on('lc-update-state', (e, state) => cb(state))
 });

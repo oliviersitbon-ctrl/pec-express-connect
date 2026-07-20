@@ -79,6 +79,37 @@ function disableAutoStart() {
   } catch (e) { log('Erreur disable auto-start: ' + e.message); }
 }
 
+// ─── État de mise à jour exposé au tableau de bord ──────────────────────────
+// status : 'idle' | 'checking' | 'none' | 'available' | 'downloading' |
+//          'downloaded' | 'error'
+let _autoUpdater = null;
+let _updateState = { status: 'idle', version: null, progress: 0 };
+let _onUpdateState = null;
+function setUpdateStateListener(fn) { _onUpdateState = fn; }
+function getUpdateState() { return _updateState; }
+function _setUpdateState(patch) {
+  _updateState = { ..._updateState, ...patch };
+  try { if (_onUpdateState) _onUpdateState(_updateState); } catch (e) {}
+}
+// Recherche MANUELLE d'une mise à jour (bouton « Rechercher une mise à jour »).
+function checkForUpdatesNow() {
+  if (!_autoUpdater) return Promise.resolve({ ok: false, error: 'Mise à jour indisponible sur ce poste.' });
+  _setUpdateState({ status: 'checking' });
+  return _autoUpdater.checkForUpdates()
+    .then(() => ({ ok: true }))
+    .catch((e) => {
+      _setUpdateState({ status: 'error' });
+      return { ok: false, error: e && e.message ? e.message : String(e) };
+    });
+}
+// Application MANUELLE de la mise à jour téléchargée (bouton « Redémarrer »).
+function quitAndInstallNow() {
+  if (!_autoUpdater) return { ok: false, error: 'Mise à jour indisponible sur ce poste.' };
+  try { clearManualQuitFlag(); } catch (e) {}
+  try { _autoUpdater.quitAndInstall(true, true); return { ok: true }; }
+  catch (e) { return { ok: false, error: e && e.message ? e.message : String(e) }; }
+}
+
 /**
  * Configure electron-updater pour pointer vers le repo public
  * et auto-check toutes les heures.
@@ -100,6 +131,8 @@ function setupAutoUpdate() {
     debug: () => {}
   };
 
+  _autoUpdater = autoUpdater;
+
   // Config: on telecharge en silence, on installe au prochain quit
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
@@ -116,11 +149,18 @@ function setupAutoUpdate() {
     autoUpdater._verifyUpdateCodeSignature = () => Promise.resolve(null);
   }
 
+  autoUpdater.on('checking-for-update', () => { _setUpdateState({ status: 'checking' }); });
+  autoUpdater.on('update-not-available', () => { _setUpdateState({ status: 'none' }); });
+  autoUpdater.on('download-progress', (p) => {
+    _setUpdateState({ status: 'downloading', progress: Math.round((p && p.percent) || 0) });
+  });
   autoUpdater.on('update-available', (info) => {
     log(`Update disponible: ${info.version}`);
+    _setUpdateState({ status: 'available', version: (info && info.version) || null });
   });
   autoUpdater.on('update-downloaded', (info) => {
     log(`Update telechargee v${info.version} - application IMMEDIATE`);
+    _setUpdateState({ status: 'downloaded', version: (info && info.version) || null });
     // Marqueur pour empêcher le watchdog de bloquer le redémarrage
     try { fs.unlinkSync(MANUAL_QUIT_FLAG); } catch (e) {}
     // Délai court (2s) pour laisser le log s'écrire et les éventuels handlers se finir
@@ -138,6 +178,7 @@ function setupAutoUpdate() {
   });
   autoUpdater.on('error', (err) => {
     log('Update error: ' + (err && err.message ? err.message : err));
+    _setUpdateState({ status: 'error' });
   });
 
   // Check rapide au demarrage puis toutes les 20 min (propagation plus rapide
@@ -159,5 +200,10 @@ module.exports = {
   setupAutoUpdate,
   setManualQuitFlag,
   clearManualQuitFlag,
-  isManualQuitFlagSet
+  isManualQuitFlagSet,
+  // Contrôle manuel de la mise à jour (tableau de bord)
+  checkForUpdatesNow,
+  quitAndInstallNow,
+  getUpdateState,
+  setUpdateStateListener
 };

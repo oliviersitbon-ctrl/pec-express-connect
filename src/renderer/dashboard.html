@@ -18,6 +18,7 @@
   .status-dot.ok { background: #28a745; }
   .status-dot.ko { background: #dc3545; }
   .status-dot.unknown { background: #999; }
+  .status-dot.warn { background: #f0ad4e; }
   .status-label { flex: 1; font-size: 13px; }
   .status-label .sub { display: block; font-size: 11px; color: #888; margin-top: 2px; word-break: break-all; }
 
@@ -65,6 +66,19 @@
         <span class="sub" id="pair-sub"></span>
       </span>
       <button class="danger" id="btn-unpair" disabled>Désappareiller</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Mise à jour</h2>
+    <div class="status-row">
+      <span class="status-dot unknown" id="upd-dot"></span>
+      <span class="status-label">
+        <span id="upd-title">Vérification…</span>
+        <span class="sub" id="upd-sub"></span>
+      </span>
+      <button class="secondary" id="btn-check-update">Rechercher</button>
+      <button class="primary" id="btn-install-update" style="display:none">Redémarrer pour mettre à jour</button>
     </div>
   </div>
 
@@ -210,6 +224,57 @@ async function loadLogs(tab) {
 
 // Listener temps-reel pousse par le main process
 api.onStatusChanged(applyStatus);
+
+// ── Mise à jour (recherche manuelle + application, en plus de l'auto-update) ──
+function applyUpdateState(st) {
+  st = st || {};
+  const dot = document.getElementById('upd-dot');
+  const title = document.getElementById('upd-title');
+  const sub = document.getElementById('upd-sub');
+  const check = document.getElementById('btn-check-update');
+  const install = document.getElementById('btn-install-update');
+  install.style.display = 'none';
+  check.disabled = false;
+  const v = st.version ? (' (v' + st.version + ')') : '';
+  switch (st.status) {
+    case 'checking':
+      dot.className = 'status-dot unknown'; title.textContent = 'Recherche de mise à jour…'; sub.textContent = ''; check.disabled = true; break;
+    case 'available':
+      dot.className = 'status-dot warn'; title.textContent = 'Mise à jour disponible' + v; sub.textContent = 'Téléchargement en cours…'; check.disabled = true; break;
+    case 'downloading':
+      dot.className = 'status-dot warn'; title.textContent = 'Téléchargement… ' + (st.progress || 0) + '%'; sub.textContent = ''; check.disabled = true; break;
+    case 'downloaded':
+      dot.className = 'status-dot ok'; title.textContent = 'Mise à jour prête' + v; sub.textContent = 'Cliquez pour redémarrer et l\'appliquer.'; install.style.display = ''; break;
+    case 'none':
+      dot.className = 'status-dot ok'; title.textContent = 'Le connecteur est à jour'; sub.textContent = ''; break;
+    case 'error':
+      dot.className = 'status-dot ko'; title.textContent = 'Recherche impossible'; sub.textContent = 'Réessayez dans un instant.'; break;
+    default:
+      dot.className = 'status-dot unknown'; title.textContent = 'Cliquez sur « Rechercher » pour vérifier'; sub.textContent = '';
+  }
+}
+
+document.getElementById('btn-check-update').addEventListener('click', async () => {
+  applyUpdateState({ status: 'checking' });
+  try {
+    const res = await api.checkUpdate();
+    if (!res || !res.ok) {
+      applyUpdateState({ status: 'error' });
+      toast('Échec : ' + ((res && res.error) || 'inconnu'));
+      return;
+    }
+    // Filet : si aucun événement n'arrive (déjà à jour), on relit l'état.
+    setTimeout(async () => { try { applyUpdateState(await api.getUpdateState()); } catch (e) {} }, 2000);
+  } catch (e) { applyUpdateState({ status: 'error' }); toast('Erreur : ' + (e && e.message ? e.message : e)); }
+});
+
+document.getElementById('btn-install-update').addEventListener('click', async () => {
+  toast('Redémarrage pour appliquer la mise à jour…');
+  try { await api.installUpdate(); } catch (e) { toast('Erreur : ' + (e && e.message ? e.message : e)); }
+});
+
+api.onUpdateState(applyUpdateState);
+(async () => { try { applyUpdateState(await api.getUpdateState()); } catch (e) {} })();
 
 refreshStatus();
 setInterval(refreshStatus, 5000);

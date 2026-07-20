@@ -118,7 +118,7 @@ function createWindow() {
   if (win && !win.isDestroyed()) return win;
   win = new BrowserWindow({
     width: 480,
-    height: 540,
+    height: 620,
     show: false,
     title: 'Mon devis dentaire Connecté v' + app.getVersion(),
     resizable: false,
@@ -169,6 +169,28 @@ function registerIpc() {
       return { ok: false, error: e.message };
     }
   });
+
+  // ── Mise à jour : recherche manuelle + application (complète l'auto-update) ──
+  ipcMain.handle('lc-get-update-state', () => {
+    try { return require('./auto-features').getUpdateState(); }
+    catch (e) { return { status: 'idle', version: null, progress: 0 }; }
+  });
+  ipcMain.handle('lc-check-update', async () => {
+    try { return await require('./auto-features').checkForUpdatesNow(); }
+    catch (e) { return { ok: false, error: e && e.message ? e.message : String(e) }; }
+  });
+  ipcMain.handle('lc-install-update', () => {
+    try { return require('./auto-features').quitAndInstallNow(); }
+    catch (e) { return { ok: false, error: e && e.message ? e.message : String(e) }; }
+  });
+  // Pousse l'état de mise à jour au tableau de bord en temps réel.
+  try {
+    require('./auto-features').setUpdateStateListener((state) => {
+      if (win && !win.isDestroyed() && win.webContents) {
+        try { win.webContents.send('lc-update-state', state); } catch (e) {}
+      }
+    });
+  } catch (e) { /* auto-features indisponible */ }
 
   ipcMain.handle('lc-reinstall-dll', async () => {
     const dllPath = dllInstalledPath();
