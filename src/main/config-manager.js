@@ -357,6 +357,7 @@ module.exports = {
   getConfig,
   checkForUpdates,
   setOverride,
+  clearPairing,
   startUpdateChecker,
   DEFAULT_CONFIG
 };
