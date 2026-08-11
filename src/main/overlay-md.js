@@ -95,11 +95,18 @@ $cb = [MDL+EnumProc]{ param($h,$l)
 [MDL]::EnumWindows($cb,[IntPtr]::Zero) | Out-Null
 
 $markersRegex = "Imprimer|Devis isol.|Eclater le devis|Devis types|Assistant devis"
-$devisB = $null
+# La fenetre de CONTENU la plus au premier plan (topmost dans le Z-order)
+# represente l'onglet ACTIF. Le bouton ne s'affiche QUE si cet onglet est la
+# page Devis : fenetre SANS titre + >=3 marqueurs. Si l'onglet actif est titre
+# (Fiche d'etat civil, Facturer, fenetre patient...), la page Devis est ouverte
+# mais EN ARRIERE-PLAN -> on masque. (Corrige la persistance du bouton hors
+# page Devis : la fenetre Devis reste chargee derriere l'onglet actif.)
+$top = $null
 foreach ($w in $wins) {
-  if ($w.Title.Length -gt 0) { continue }
-  if ($w.W -lt 1800 -or $w.W -gt 1950) { continue }
-  if ($w.H -lt 800 -or $w.H -gt 900) { continue }
+  if ($w.W -gt 1500 -and $w.H -gt 700) { $top = $w; break }
+}
+$devisB = $null
+if ($top -and $top.Title.Length -eq 0) {
   $cnt = 0
   $cbM = [MDL+EnumProc]{ param($h,$l)
     $cls=New-Object System.Text.StringBuilder(64); [MDL]::GetClassName($h,$cls,64) | Out-Null
@@ -109,8 +116,8 @@ foreach ($w in $wins) {
     }
     return $true
   }
-  [MDL]::EnumChildWindows($w.HWnd,$cbM,[IntPtr]::Zero) | Out-Null
-  if ($cnt -ge 3) { $devisB = $w; break }
+  [MDL]::EnumChildWindows($top.HWnd,$cbM,[IntPtr]::Zero) | Out-Null
+  if ($cnt -ge 3) { $devisB = $top }
 }
 if (-not $devisB) { Write-Output '{"ok":false,"reason":"no-devis-window"}'; exit 0 }
 
