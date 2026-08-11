@@ -3453,6 +3453,21 @@ if (!gotTheLock) {
             });
             return { ok: false, error: 'pending-approval' };
           }
+          // Garde-fou RÉINSERTION : sans n° de dossier Logos (sourcePatientRef),
+          // le questionnaire rempli ne pourrait jamais être réécrit dans la bonne
+          // fiche -> on n'envoie pas, plutôt que de créer un questionnaire orphelin.
+          if (!fiche || fiche.numero == null || String(fiche.numero).trim() === '') {
+            log('[QUESTIONNAIRE] n° de dossier Logos introuvable -> envoi annulé (retour non réinsérable)');
+            try {
+              require('./block-popup').show({
+                tone: 'info',
+                heading: "N° de dossier Logos introuvable",
+                message: "Impossible de lire le numéro de dossier de ce patient. Le questionnaire n'a pas été envoyé, car il ne pourrait pas revenir automatiquement dans la fiche. Ouvrez la fiche du patient sur l'onglet État civil puis réessayez.",
+                phone: supportPhone(),
+              });
+            } catch (e) {}
+            return { ok: false, error: 'no-numero' };
+          }
           const site = CONFIG.siteUrl; // routes /api/questionnaire/* sur le host MDD
           const patientsDir = c.logosPatientsDir || null;
           let email = null, phone = null, civility = null, dob = fiche.dob || null;

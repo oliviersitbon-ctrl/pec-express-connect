@@ -78,113 +78,131 @@ $fg = [FD]::GetForegroundWindow(); $fgPid = 0
 if ($fgPid -ne $pid0) { Write-Output '{"active":false,"reason":"logos-not-foreground"}'; exit 0 }
 $fgId = $fg.ToInt64()
 
-# 1) Collecter les fenetres top-level Logos visibles (titre + hwnd).
+# Fenetres top-level Logos visibles (titre + hwnd).
 $wins = New-Object System.Collections.ArrayList
 $cbTop = [FD+EnumProc]{ param($h,$l)
   if ([FD]::IsWindowVisible($h) -and -not [FD]::IsIconic($h)) {
     $pp=0; [FD]::GetWindowThreadProcessId($h,[ref]$pp) | Out-Null
     if ($pp -eq $pid0) {
       $sb=New-Object System.Text.StringBuilder(512); [FD]::GetWindowText($h,$sb,512) | Out-Null
-      $r=New-Object FD+RECT; [FD]::GetWindowRect($h,[ref]$r) | Out-Null
-      if (($r.Right-$r.Left) -gt 300 -and ($r.Bottom-$r.Top) -gt 200) {
-        [void]$script:wins.Add([PSCustomObject]@{ HWnd=$h; Id=$h.ToInt64(); Title=$sb.ToString() })
-      }
+      [void]$script:wins.Add([PSCustomObject]@{ HWnd=$h; Id=$h.ToInt64(); Title=$sb.ToString() })
     }
   }
   return $true
 }
 [FD]::EnumWindows($cbTop,[IntPtr]::Zero) | Out-Null
 
-# 2) Fenetre FICHE = celle qui contient un bouton "Aide" + >=2 marqueurs Etat civil.
-$markerRx = "Enregistrer|Lire la carte|Droits en ligne|Espace Sant|carte Vitale"
-$ficheId = $null; $ficheHwnd = $null; $aide = $null
+# 1) Page Etat civil = fenetre Logos dont le TITRE contient "tat civil"
+#    ("Fiche d'etat civil"). Signal direct, robuste a la version de Logos.
+$ficheHwnd = $null; $ficheId = $null
 foreach ($w in $script:wins) {
-  $script:mk = 0; $script:ad = $null
-  $cbc = [FD+EnumProc]{ param($h,$l)
-    if ([FD]::IsWindowVisible($h)) {
-      $cls=New-Object System.Text.StringBuilder(64); [FD]::GetClassName($h,$cls,64) | Out-Null
-      if ($cls.ToString() -match "Button") {
-        $sb=New-Object System.Text.StringBuilder(128); [FD]::GetWindowText($h,$sb,128) | Out-Null
-        $t=$sb.ToString()
-        if ($t -match $markerRx) { $script:mk++ }
-        if (-not $script:ad -and $t -match "^\s*Aide\s*$") {
-          $r=New-Object FD+RECT; [FD]::GetWindowRect($h,[ref]$r) | Out-Null
-          $script:ad=[PSCustomObject]@{ L=$r.Left; T=$r.Top; R=$r.Right; B=$r.Bottom }
+  if ($w.Title -match "(?i)tat civil") { $ficheHwnd = $w.HWnd; $ficheId = $w.Id; break }
+}
+# Repli (anciennes versions) : fenetre contenant un bouton "Aide" + >=2
+# marqueurs Etat civil parmi ses boutons visibles.
+if (-not $ficheHwnd) {
+  $markerRx = "Enregistrer|Lire la carte|Droits en ligne|Espace Sant|carte Vitale"
+  foreach ($w in $script:wins) {
+    $script:mk = 0; $script:ad = 0
+    $cbc = [FD+EnumProc]{ param($h,$l)
+      if ([FD]::IsWindowVisible($h)) {
+        $cls=New-Object System.Text.StringBuilder(64); [FD]::GetClassName($h,$cls,64) | Out-Null
+        if ($cls.ToString() -match "Button") {
+          $sb=New-Object System.Text.StringBuilder(128); [FD]::GetWindowText($h,$sb,128) | Out-Null
+          $t=$sb.ToString()
+          if ($t -match $markerRx) { $script:mk++ }
+          if ($t -match "^\s*Aide\s*$") { $script:ad++ }
         }
       }
+      return $true
     }
-    return $true
+    [FD]::EnumChildWindows($w.HWnd,$cbc,[IntPtr]::Zero) | Out-Null
+    if ($script:ad -ge 1 -and $script:mk -ge 2) { $ficheHwnd = $w.HWnd; $ficheId = $w.Id; break }
   }
-  [FD]::EnumChildWindows($w.HWnd,$cbc,[IntPtr]::Zero) | Out-Null
-  if ($script:ad -and $script:mk -ge 2) { $ficheId = $w.Id; $ficheHwnd = $w.HWnd; $aide = $script:ad; break }
 }
-if (-not $aide) { Write-Output '{"active":false,"reason":"not-etat-civil"}'; exit 0 }
+if (-not $ficheHwnd) { Write-Output '{"active":false,"reason":"not-etat-civil"}'; exit 0 }
 
-# 3) Lire les CHAMPS de la fiche affichee (controles Edit, via WM_GETTEXT).
-$edits = New-Object System.Collections.ArrayList
-$cbe = [FD+EnumProc]{ param($h,$l)
-  if ([FD]::IsWindowVisible($h)) {
-    $cls=New-Object System.Text.StringBuilder(48); [FD]::GetClassName($h,$cls,48) | Out-Null
-    if ($cls.ToString() -match 'Edit') {
-      $sb=New-Object System.Text.StringBuilder(256)
-      [FD]::SendMessage($h, 0x000D, [IntPtr]255, $sb) | Out-Null
-      $t=$sb.ToString().Trim()
-      if ($t.Length -gt 0) {
+# 2) Bouton "Aide" DANS la fenetre fiche -> ancre de l'overlay. Repli : coin
+#    haut-droit de la fenetre fiche si "Aide" introuvable.
+$aide = $null
+$cbA = [FD+EnumProc]{ param($h,$l)
+  if ([FD]::IsWindowVisible($h) -and -not $script:aide) {
+    $cls=New-Object System.Text.StringBuilder(64); [FD]::GetClassName($h,$cls,64) | Out-Null
+    if ($cls.ToString() -match "Button") {
+      $sb=New-Object System.Text.StringBuilder(64); [FD]::GetWindowText($h,$sb,64) | Out-Null
+      if ($sb.ToString() -match "^\s*Aide\s*$") {
         $r=New-Object FD+RECT; [FD]::GetWindowRect($h,[ref]$r) | Out-Null
-        [void]$script:edits.Add([PSCustomObject]@{ T=$t; L=$r.Left; Top=$r.Top })
+        $script:aide=[PSCustomObject]@{ L=$r.Left; T=$r.Top; R=$r.Right; B=$r.Bottom }
       }
     }
   }
   return $true
 }
-[FD]::EnumChildWindows($ficheHwnd,$cbe,[IntPtr]::Zero) | Out-Null
-
-# NUMERO de dossier = champ "chiffres purs" le plus a DROITE dans la zone haute.
-$numero = $null; $numL = -999999
-foreach ($e in $script:edits) {
-  if ($e.T -match '^\d{1,6}$' -and $e.Top -lt 450 -and $e.L -gt $numL) { $numL = $e.L; $numero = $e.T }
+[FD]::EnumChildWindows($ficheHwnd,$cbA,[IntPtr]::Zero) | Out-Null
+if (-not $aide) {
+  $rf=New-Object FD+RECT; [FD]::GetWindowRect($ficheHwnd,[ref]$rf) | Out-Null
+  $aide=[PSCustomObject]@{ L=($rf.Right-60); T=($rf.Top+8); R=($rf.Right-20); B=($rf.Top+34) }
 }
 
-# NIR -> annee + mois de naissance (pour recouper la DDN).
-$nyy = $null; $nmm = $null
-foreach ($e in $script:edits) {
-  if ($e.T -match '^\s*[12][\s]?(\d{2})[\s]?(\d{2})[\s]?\d{2}') { $nyy = $matches[1]; $nmm = $matches[2]; break }
+# 3) NUMERO (PIVOT de reinsertion !) + NOM/PRENOM. Trois methodes, du plus
+#    fiable au repli, car sans numero le questionnaire ne revient pas.
+#    a) titre "NNNN - NOM Prenom" ; b) "... Numero NNNN" ; c) champ Edit
+#    chiffres purs le plus a droite/haut de la fiche.
+$numero = $null; $name = $null
+foreach ($w in $script:wins) {
+  if ($w.Title -match '^(\d{1,7})\s*[-–]\s*(.+)$') { $numero = $matches[1]; $name = $matches[2].Trim(); break }
+}
+if (-not $numero) {
+  foreach ($w in $script:wins) {
+    if ($w.Title -match '(?i)Num[ée]ro\s*[:°]?\s*(\d{1,7})') {
+      $numero = $matches[1]
+      if (-not $name -and $w.Title -match '(?i)^(.*?)\s*[-–]?\s*Num[ée]ro') {
+        $name = ($matches[1] -replace '(?i)^\s*(M\.|Mme|Mlle|Mr|M)\s+','').Trim()
+      }
+      break
+    }
+  }
+}
+if (-not $numero) {
+  $script:numero2 = $null; $script:numL = -999999
+  $cbN = [FD+EnumProc]{ param($h,$l)
+    if ([FD]::IsWindowVisible($h)) {
+      $cls=New-Object System.Text.StringBuilder(48); [FD]::GetClassName($h,$cls,48) | Out-Null
+      if ($cls.ToString() -match 'Edit') {
+        $sb=New-Object System.Text.StringBuilder(32); [FD]::GetWindowText($h,$sb,32) | Out-Null
+        $t=$sb.ToString().Trim()
+        if ($t -match '^\d{1,7}$') {
+          $r=New-Object FD+RECT; [FD]::GetWindowRect($h,[ref]$r) | Out-Null
+          if ($r.Top -lt 500 -and $r.Left -gt $script:numL) { $script:numL = $r.Left; $script:numero2 = $t }
+        }
+      }
+    }
+    return $true
+  }
+  [FD]::EnumChildWindows($ficheHwnd,$cbN,[IntPtr]::Zero) | Out-Null
+  if ($script:numero2) { $numero = $script:numero2 }
 }
 
-# DDN = champ date JJ/MM/AAAA. Priorite a celle qui recoupe le NIR (mois+annee),
-# sinon la date la plus HAUTE avec une annee de naissance plausible.
+# 4) DDN (optionnel) : 1er champ date JJ/MM/AAAA plausible de la fiche.
 $dob = $null
-$dates = New-Object System.Collections.ArrayList
-foreach ($e in $script:edits) { if ($e.T -match '^(\d{2})/(\d{2})/(\d{4})$') { [void]$script:dates.Add($e) } }
-if ($nmm -and $nyy) {
-  foreach ($e in $script:dates) {
-    if ($e.T -match ('^\d{2}/' + [regex]::Escape($nmm) + '/(?:19|20)' + [regex]::Escape($nyy) + '$')) { $dob = $e.T; break }
+$cbE = [FD+EnumProc]{ param($h,$l)
+  if ([FD]::IsWindowVisible($h) -and -not $script:dob) {
+    $cls=New-Object System.Text.StringBuilder(48); [FD]::GetClassName($h,$cls,48) | Out-Null
+    if ($cls.ToString() -match 'Edit') {
+      $sb=New-Object System.Text.StringBuilder(64); [FD]::GetWindowText($h,$sb,64) | Out-Null
+      $t=$sb.ToString().Trim()
+      if ($t -match '^(\d{2})/(\d{2})/(\d{4})$') {
+        $y=[int]$matches[3]; if ($y -ge 1900 -and $y -lt 2100) { $script:dob = $t }
+      }
+    }
   }
+  return $true
 }
-if (-not $dob) {
-  $curY = (Get-Date).Year; $minTop = 999999
-  foreach ($e in $script:dates) {
-    $y = [int]($e.T.Substring(6,4))
-    if ($y -ge 1900 -and $y -lt $curY -and $e.Top -lt $minTop) { $minTop = $e.Top; $dob = $e.T }
-  }
-}
-
-# NOM/PRENOM : fenetre patient dont le titre commence par CE numero.
-$name = $null
-if ($numero) {
-  foreach ($w in $script:wins) {
-    if ($w.Title -match ('^' + [regex]::Escape($numero) + '\s*[-–]\s*(.+)$')) { $name = $matches[1].Trim(); break }
-  }
-}
-if (-not $name) {
-  foreach ($w in $script:wins) {
-    if ($w.Title -match '^(\d+)\s*[-–]\s*(.+)$') { if (-not $numero) { $numero = $matches[1] }; $name = $matches[2].Trim(); break }
-  }
-}
+[FD]::EnumChildWindows($ficheHwnd,$cbE,[IntPtr]::Zero) | Out-Null
 
 $obj = @{
   active = $true
-  focused = ($fgId -eq $ficheId)
+  focused = $true
   numero = $numero
   name = $name
   dob = $dob
