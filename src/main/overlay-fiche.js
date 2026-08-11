@@ -184,22 +184,46 @@ if (-not $numero) {
   if ($script:numero2) { $numero = $script:numero2 }
 }
 
-# 4) DDN (optionnel) : 1er champ date JJ/MM/AAAA plausible de la fiche.
+# 4) DDN (REQUISE cote borne/tablette). Les champs Edit WinDev ne repondent
+#    PAS a GetWindowText -> on lit via WM_GETTEXT (SendMessage). On prend la date
+#    JJ/MM/AAAA recoupee avec le NIR (mois+annee) si possible, sinon la plus haute.
 $dob = $null
+$script:edits = New-Object System.Collections.ArrayList
 $cbE = [FD+EnumProc]{ param($h,$l)
-  if ([FD]::IsWindowVisible($h) -and -not $script:dob) {
+  if ([FD]::IsWindowVisible($h)) {
     $cls=New-Object System.Text.StringBuilder(48); [FD]::GetClassName($h,$cls,48) | Out-Null
     if ($cls.ToString() -match 'Edit') {
-      $sb=New-Object System.Text.StringBuilder(64); [FD]::GetWindowText($h,$sb,64) | Out-Null
+      $sb=New-Object System.Text.StringBuilder(256)
+      [FD]::SendMessage($h, 0x000D, [IntPtr]255, $sb) | Out-Null
       $t=$sb.ToString().Trim()
-      if ($t -match '^(\d{2})/(\d{2})/(\d{4})$') {
-        $y=[int]$matches[3]; if ($y -ge 1900 -and $y -lt 2100) { $script:dob = $t }
+      if ($t.Length -gt 0) {
+        $r=New-Object FD+RECT; [FD]::GetWindowRect($h,[ref]$r) | Out-Null
+        [void]$script:edits.Add([PSCustomObject]@{ T=$t; Top=$r.Top })
       }
     }
   }
   return $true
 }
 [FD]::EnumChildWindows($ficheHwnd,$cbE,[IntPtr]::Zero) | Out-Null
+# NIR -> annee (yy) + mois (mm) de naissance, pour cibler la bonne date.
+$nyy = $null; $nmm = $null
+foreach ($e in $script:edits) {
+  if ($e.T -match '^\s*[12][\s]?(\d{2})[\s]?(\d{2})[\s]?\d{2}') { $nyy = $matches[1]; $nmm = $matches[2]; break }
+}
+$script:dates = New-Object System.Collections.ArrayList
+foreach ($e in $script:edits) { if ($e.T -match '^(\d{2})/(\d{2})/(\d{4})$') { [void]$script:dates.Add($e) } }
+if ($nmm -and $nyy) {
+  foreach ($e in $script:dates) {
+    if ($e.T -match ('^\d{2}/' + [regex]::Escape($nmm) + '/(?:19|20)' + [regex]::Escape($nyy) + '$')) { $dob = $e.T; break }
+  }
+}
+if (-not $dob) {
+  $minTop = 999999
+  foreach ($e in $script:dates) {
+    $y = [int]($e.T.Substring(6,4))
+    if ($y -ge 1900 -and $y -lt 2100 -and $e.Top -lt $minTop) { $minTop = $e.Top; $dob = $e.T }
+  }
+}
 
 $obj = @{
   active = $true
