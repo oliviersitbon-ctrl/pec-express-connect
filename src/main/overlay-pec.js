@@ -199,11 +199,17 @@ async function refreshDevisDetection() {
 // (flux) ou d'un detectDevisPage ponctuel (secours) : affiche / masque / grise
 // l'overlay. _processingInflight évite tout chevauchement (lecture mémoire du
 // devis) quand les états arrivent rapprochés.
+let _lastDiag = '';
 async function applyDetection(r) {
   if (_suspended) { hideOverlay(); return; }
   if (_processingInflight) return;
   _processingInflight = true;
   try {
+    // DIAG (temporaire) : compare la fenetre focus (fg) et la fenetre topmost.
+    if (r && r.diag && r.diag !== _lastDiag) {
+      _lastDiag = r.diag;
+      log('[DIAG] ' + r.diag + ' | active=' + (!!r.active) + ' reason=' + (r.reason || '-'));
+    }
     if (r.reason === 'logos-not-running') {
       // Logos n'est pas en avant -> cacher completement
       if (_lastHideReason !== r.reason) { log(`Logos = absent | raison=${r.reason}`); }

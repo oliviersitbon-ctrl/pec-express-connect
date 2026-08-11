@@ -117,7 +117,20 @@ $top = $null
 foreach ($w in $wins) {
     if ($w.W -gt 1500 -and $w.H -gt 700) { $top = $w; break }
 }
-if ($top -and $top.Title.Length -eq 0) {
+# La fenetre Devis est une popup "owned" qui reste AU-DESSUS de la fenetre
+# patient meme sans focus (donc topmost) : on ne l'accepte que si elle EST la
+# fenetre reellement au PREMIER PLAN (focus). Sinon (devis ferme / autre onglet
+# / accueil), la fenetre focus est le cadre patient -> on masque.
+$fgHwnd = $fg.ToInt64()
+$fgSb = New-Object System.Text.StringBuilder(256); [LD]::GetWindowText($fg, $fgSb, 256) | Out-Null
+$fgTitle = $fgSb.ToString()
+$topTitle = if ($top) { $top.Title } else { '(aucune)' }
+$topHwnd = if ($top) { [int64]$top.HWnd } else { 0 }
+$topWH = if ($top) { ('' + $top.W + 'x' + $top.H) } else { '-' }
+$fgIsTop = if ($top) { ($topHwnd -eq $fgHwnd) } else { $false }
+$diag = ('fg=[' + $fgTitle + ']#' + $fgHwnd + ' top=[' + $topTitle + ']#' + $topHwnd + ' ' + $topWH + ' fgIsTop=' + $fgIsTop)
+$diag = ($diag -replace '["\\]', ' ')
+if ($top -and $top.Title.Length -eq 0 -and $topHwnd -eq $fgHwnd) {
     $markersFound = @()
     $cbB = [LD+EnumProc]{ param($h, $l)
         if ([LD]::IsWindowVisible($h)) {
@@ -155,6 +168,7 @@ if (-not $devisB) {
         active = $false
         reason = "no-devis-window"
         logosForeground = $true
+        diag = $diag
         logosLeft = if ($mainLogos) { $mainLogos.Left } else { 0 }
         logosTop = if ($mainLogos) { $mainLogos.Top } else { 0 }
         logosWidth = if ($mainLogos) { $mainLogos.W } else { 1920 }
@@ -192,7 +206,7 @@ if (-not $patientA) {
 }
 
 if (-not $patientA) {
-    Write-Output ('{"active":true,"reason":"no-patient-window","devisHwnd":' + $devisB.HWnd + ',"markers":' + $devisB.MarkersFound + '}')
+    Write-Output ('{"active":true,"reason":"no-patient-window","devisHwnd":' + $devisB.HWnd + ',"markers":' + $devisB.MarkersFound + ',"diag":"' + $diag + '"}')
     exit 0
 }
 
@@ -228,6 +242,7 @@ $cbRect = [LD+EnumProc]{ param($h, $l)
 # pour pouvoir positionner le bouton overlay relatif a Logos
 $result = @{
     active = $true
+    diag = $diag
     devisHwnd = $devisB.HWnd
     patientHwnd = $patientA.HWnd
     devisId = $patientA.DevisId
