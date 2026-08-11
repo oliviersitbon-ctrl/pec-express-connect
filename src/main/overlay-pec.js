@@ -468,7 +468,7 @@ function stopCursorPoll() {
 // Le délai se mesure APRÈS la fin de la détection, ce qui garantit qu'un seul
 // PowerShell tourne à la fois.
 let _detectPollTimer = null;
-const DETECT_POLL_ACTIVE_MS = 500;
+const DETECT_POLL_ACTIVE_MS = 300;  // resserre: le bouton disparait plus vite au changement d'onglet
 const DETECT_POLL_IDLE_MS = 1000;
 function startDetectPoll() {
   if (_detectPollTimer) return;
