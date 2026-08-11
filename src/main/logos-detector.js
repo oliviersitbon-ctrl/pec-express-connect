@@ -106,11 +106,18 @@ $cb = [LD+EnumProc]{ param($h, $l)
 # 2. Identifier la 1ere fenetre B "devis active"
 #    Critere: title vide, taille proche 1914x871, contient >=3 marqueurs devis
 $markersRegex = "Imprimer|Devis isol.|Eclater le devis|Devis types|Assistant devis"
+# La fenetre de CONTENU la plus au premier plan (topmost = 1re dans l'ordre
+# EnumWindows) represente l'onglet ACTIF. Le bouton ne s'affiche QUE si cet
+# onglet EST la page Devis : fenetre SANS titre + >=3 marqueurs. Si l'onglet
+# actif est titre (Fiche d'etat civil, Facturer, fenetre patient...), la fenetre
+# Devis peut rester chargee EN ARRIERE-PLAN -> on masque. Corrige la persistance
+# du bouton hors de la page Devis.
 $devisB = $null
+$top = $null
 foreach ($w in $wins) {
-    if ($w.Title.Length -gt 0) { continue }
-    if ($w.W -lt 1800 -or $w.W -gt 1950) { continue }
-    if ($w.H -lt 800 -or $w.H -gt 900) { continue }
+    if ($w.W -gt 1500 -and $w.H -gt 700) { $top = $w; break }
+}
+if ($top -and $top.Title.Length -eq 0) {
     $markersFound = @()
     $cbB = [LD+EnumProc]{ param($h, $l)
         if ([LD]::IsWindowVisible($h)) {
@@ -127,12 +134,11 @@ foreach ($w in $wins) {
         }
         return $true
     }
-    [LD]::EnumChildWindows([IntPtr]$w.HWnd, $cbB, [IntPtr]::Zero) | Out-Null
+    [LD]::EnumChildWindows([IntPtr]$top.HWnd, $cbB, [IntPtr]::Zero) | Out-Null
     $uniqMarkers = ($markersFound | Sort-Object -Unique).Count
     if ($uniqMarkers -ge 3) {
-        $devisB = $w
+        $devisB = $top
         $devisB | Add-Member -NotePropertyName 'MarkersFound' -NotePropertyValue $uniqMarkers
-        break
     }
 }
 
