@@ -41,7 +41,8 @@ let _lastMaskLog = null;    // anti-spam : on ne loggue "Masque" qu'au changemen
 const OVERLAY_WIDTH = 170;
 const OVERLAY_HEIGHT = 30;
 const GAP_LEFT_OF_AIDE = 8;  // ecart a gauche du bouton Aide
-const POLL_MS = 1500;
+const POLL_VISIBLE_MS = 600;   // overlay AFFICHE -> on repere vite la disparition (changement d'onglet)
+const POLL_HIDDEN_MS = 1500;    // overlay MASQUE -> on guette l'apparition (moins couteux)
 
 // -- Detection page Etat civil + bouton Aide --------------------------------
 // Renvoie JSON : { active, reason?, name?, numero?, dob?, focused?,
@@ -358,11 +359,23 @@ while ([FGH2]::GetMessage([ref]$m,[IntPtr]::Zero,0,0) -gt 0) {}
 }
 
 function stopWatcher() { if (_watcherProc) { try { _watcherProc.kill(); } catch (e) {} _watcherProc = null; } }
+// Sondage ADAPTATIF : le hook foreground ne se declenche pas quand on change
+// d'onglet DANS la fenetre patient (meme fenetre au premier plan). On sonde donc
+// plus vite tant que l'overlay est affiche pour qu'il disparaisse rapidement des
+// qu'on quitte la page Etat civil.
+function scheduleNextPoll() {
+  const visible = _win && !_win.isDestroyed() && _win.isVisible();
+  const delay = visible ? POLL_VISIBLE_MS : POLL_HIDDEN_MS;
+  _pollTimer = setTimeout(async () => {
+    if (!_suspended) { try { await refresh(); } catch (e) {} }
+    scheduleNextPoll();
+  }, delay);
+}
 function startPoll() {
   if (_pollTimer) return;
-  _pollTimer = setInterval(() => { if (!_suspended) refresh(); }, POLL_MS);
+  scheduleNextPoll();
 }
-function stopPoll() { if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; } }
+function stopPoll() { if (_pollTimer) { clearTimeout(_pollTimer); _pollTimer = null; } }
 
 function setupIpc() {
   ipcMain.on('overlay-fiche-set-ignore', (event, ignore) => {
